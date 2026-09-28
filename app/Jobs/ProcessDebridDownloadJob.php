@@ -80,14 +80,29 @@ class ProcessDebridDownloadJob implements ShouldQueue
             $downloadedSoFar = 0;
 
             $proxies = RealDebridService::getProxyList();
-            if (empty($proxies)) {
-                $proxies = [null]; // direct connection fallback
+            $speedService = app(\App\Services\ProxySpeedService::class);
+            $minSpeedMbps = (float) config('services.realdebrid.min_proxy_speed_mbps', 50.0);
+
+            // Detect and benchmark proxies: find one capable of >= 50 Mbps speed
+            $fastProxyResult = $speedService->findFastProxy($debridUrl, $proxies, $minSpeedMbps);
+            $chosenProxy = $fastProxyResult['proxy'];
+
+            // Build prioritized proxy list: verified fast proxy first, then remaining candidates, then direct
+            $orderedProxies = [];
+            if ($chosenProxy !== null) {
+                $orderedProxies[] = $chosenProxy;
             }
+            foreach ($proxies as $p) {
+                if ($p !== $chosenProxy) {
+                    $orderedProxies[] = $p;
+                }
+            }
+            $orderedProxies[] = null; // direct connection fallback
 
             $downloadSuccess = false;
             $lastException = null;
 
-            foreach ($proxies as $proxy) {
+            foreach ($orderedProxies as $proxy) {
                 try {
                     $guzzleConfig = [
                         'verify' => false,

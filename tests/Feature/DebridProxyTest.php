@@ -136,4 +136,20 @@ class DebridProxyTest extends TestCase
         $chunkResponse->assertHeader('Content-Length', '10');
         $this->assertEquals(substr($content, 0, 10), $chunkResponse->streamedContent());
     }
+
+    public function test_proxy_speed_service_normalizes_and_handles_proxies()
+    {
+        $speedService = new \App\Services\ProxySpeedService();
+
+        $this->assertEquals('http://1.2.3.4:8080', $speedService->normalizeProxy('1.2.3.4:8080'));
+        $this->assertEquals('http://1.2.3.4:8080', $speedService->normalizeProxy('http://1.2.3.4:8080'));
+        $this->assertEquals('socks5://1.2.3.4:1080', $speedService->normalizeProxy('socks5://1.2.3.4:1080'));
+        $this->assertNull($speedService->normalizeProxy(''));
+        $this->assertNull($speedService->normalizeProxy(null));
+
+        // When given empty proxy list, returns direct fallback
+        $result = $speedService->findFastProxy('https://example.com/testfile', []);
+        $this->assertNull($result['proxy']);
+        $this->assertTrue($result['qualified']);
+    }
 }

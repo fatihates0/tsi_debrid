@@ -42,7 +42,11 @@ class RealDebridService
     {
         $envProxy = config('services.realdebrid.proxy');
         if (!empty($envProxy)) {
-            return [trim($envProxy)];
+            $trimmed = trim($envProxy);
+            if (!preg_match('#^[a-z0-9]+://#i', $trimmed)) {
+                $trimmed = 'http://' . $trimmed;
+            }
+            return [$trimmed];
         }
 
         $txtPath = public_path('proxies.txt');
@@ -52,6 +56,9 @@ class RealDebridService
             foreach ($lines as $line) {
                 $trimmed = trim($line);
                 if (!empty($trimmed) && !str_starts_with($trimmed, '#')) {
+                    if (!preg_match('#^[a-z0-9]+://#i', $trimmed)) {
+                        $trimmed = 'http://' . $trimmed;
+                    }
                     $proxies[] = $trimmed;
                 }
             }

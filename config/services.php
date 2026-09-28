@@ -40,6 +40,7 @@ return [
         'base_url' => env('REAL_DEBRID_BASE_URL', 'https://api.real-debrid.com/rest/1.0/'),
         'use_remote' => env('REAL_DEBRID_REMOTE_TRAFFIC', true),
         'proxy' => env('REAL_DEBRID_PROXY', null),
+        'min_proxy_speed_mbps' => (float) env('DEBRID_MIN_PROXY_SPEED_MBPS', 50.0),
     ],
 
 ];
