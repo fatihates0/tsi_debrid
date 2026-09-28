@@ -124,7 +124,7 @@ class DebridApiController extends Controller
     }
 
     /**
-     * Delete cached download record and files
+     * Delete cached download record and files / Cancel ongoing download
      */
     public function destroy(string $uuid): JsonResponse
     {
@@ -137,15 +137,29 @@ class DebridApiController extends Controller
             ], 404);
         }
 
+        // 1. Signal cancellation to any active background download jobs
+        \Illuminate\Support\Facades\Cache::put("cancel_download_{$uuid}", true, now()->addMinutes(10));
+
+        // 2. Mark as cancelled before deletion so active loop notices
+        $download->update(['status' => 'cancelled']);
+
+        // 3. Delete physical storage file and folder
         if (!empty($download->storage_path)) {
-            \Illuminate\Support\Facades\Storage::disk('public')->delete($download->storage_path);
+            $fullPath = \Illuminate\Support\Facades\Storage::disk('public')->path($download->storage_path);
+            if (file_exists($fullPath)) {
+                @unlink($fullPath);
+            }
+            $dir = dirname($download->storage_path);
+            if ($dir && $dir !== '.' && \Illuminate\Support\Facades\Storage::disk('public')->exists($dir)) {
+                \Illuminate\Support\Facades\Storage::disk('public')->deleteDirectory($dir);
+            }
         }
 
         $download->delete();
 
         return response()->json([
             'status' => 'success',
-            'message' => 'Download and cached file removed successfully.',
+            'message' => 'Download cancelled and cached file removed successfully.',
         ]);
     }
 

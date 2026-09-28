@@ -371,11 +371,11 @@
                                                 </button>
                                             </template>
 
-                                            <!-- DELETE BUTTON -->
+                                            <!-- DELETE / CANCEL BUTTON -->
                                             <button @click="deleteItem(item.uuid)"
                                                 class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 hover:text-rose-400 text-slate-400 text-xs transition"
-                                                title="Önbelleği Sil">
-                                                <i class="fa-solid fa-trash"></i>
+                                                :title="['pending', 'unrestricting', 'downloading'].includes(item.status) ? 'İndirmeyi İptal Et ve Sil' : 'Önbelleği Sil'">
+                                                <i class="fa-solid" :class="['pending', 'unrestricting', 'downloading'].includes(item.status) ? 'fa-xmark text-rose-400' : 'fa-trash'"></i>
                                             </button>
                                         </div>
                                     </td>
@@ -475,7 +475,17 @@
                 },
 
                 async deleteItem(uuid) {
-                    if (!confirm('Bu önbellek dosyasını ve kaydını silmek istediğinize emin misiniz?')) return;
+                    const item = this.downloadsList.find(d => d.uuid === uuid);
+                    const isRunning = item && ['pending', 'unrestricting', 'downloading'].includes(item.status);
+                    const promptText = isRunning
+                        ? 'Bu indirmeyi durdurup iptal etmek ve kaydı silmek istediğinize emin misiniz?'
+                        : 'Bu önbellek dosyasını ve kaydını silmek istediğinize emin misiniz?';
+
+                    if (!confirm(promptText)) return;
+
+                    // Instantly remove from local list for snappy UI feedback
+                    this.downloadsList = this.downloadsList.filter(d => d.uuid !== uuid);
+
                     try {
                         const res = await fetch('/downloads/' + uuid, {
                             method: 'DELETE',
@@ -485,11 +495,12 @@
                             }
                         });
                         const json = await res.json();
-                        if (json.success) {
-                            this.fetchDownloads();
+                        if (json && json.success) {
+                            this.fetchDownloads(true);
                         }
                     } catch (e) {
-                        alert('Silme hatası oluştu.');
+                        this.fetchDownloads(true);
+                        alert('İşlem sırasında hata oluştu.');
                     }
                 },
 

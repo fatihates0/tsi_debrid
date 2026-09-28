@@ -233,14 +233,24 @@ class DebridDownloadController extends Controller
      }
 
     /**
-     * Delete cached download file
+     * Delete cached download file / Cancel ongoing download
      */
     public function destroy(string $uuid)
     {
         $download = DebridDownload::where('uuid', $uuid)->firstOrFail();
 
+        // 1. Signal cancellation to any active background download jobs
+        \Illuminate\Support\Facades\Cache::put("cancel_download_{$uuid}", true, now()->addMinutes(10));
+
+        // 2. Mark as cancelled before deletion so active loop notices
+        $download->update(['status' => 'cancelled']);
+
+        // 3. Delete physical storage file and folder
         if (!empty($download->storage_path)) {
-            Storage::disk('public')->delete($download->storage_path);
+            $fullPath = Storage::disk('public')->path($download->storage_path);
+            if (file_exists($fullPath)) {
+                @unlink($fullPath);
+            }
             $dir = dirname($download->storage_path);
             if ($dir && $dir !== '.' && Storage::disk('public')->exists($dir)) {
                 Storage::disk('public')->deleteDirectory($dir);
@@ -252,11 +262,11 @@ class DebridDownloadController extends Controller
         if (request()->wantsJson()) {
             return response()->json([
                 'success' => true,
-                'message' => 'Dosya önbelleği ve kaydı başarıyla silindi.',
+                'message' => 'İndirme iptal edildi ve dosya kaydı silindi.',
             ]);
         }
 
-        return redirect()->route('dashboard')->with('success', 'Dosya ve önbellek silindi.');
+        return redirect()->route('dashboard')->with('success', 'İndirme iptal edildi ve dosya silindi.');
     }
 
     /**

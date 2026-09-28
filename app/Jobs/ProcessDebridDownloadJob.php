@@ -8,6 +8,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Exception;
@@ -30,9 +31,18 @@ class ProcessDebridDownloadJob implements ShouldQueue
 
     public function handle(RealDebridService $rdService): void
     {
+        $downloadUuid = $this->download->uuid;
+
+        // Check if download was cancelled before the job started
+        if (Cache::has("cancel_download_{$downloadUuid}")) {
+            Log::info("ProcessDebridDownloadJob: Cancelled before starting (UUID: {$downloadUuid})");
+            Cache::forget("cancel_download_{$downloadUuid}");
+            return;
+        }
+
         $download = $this->download->fresh();
 
-        if (!$download) {
+        if (!$download || $download->status === 'cancelled') {
             return;
         }
 
@@ -61,6 +71,12 @@ class ProcessDebridDownloadJob implements ShouldQueue
                 ]);
             }
 
+            if (Cache::has("cancel_download_{$downloadUuid}")) {
+                Log::info("ProcessDebridDownloadJob: Cancelled after unrestricting (UUID: {$downloadUuid})");
+                Cache::forget("cancel_download_{$downloadUuid}");
+                return;
+            }
+
             // Step 2: Download file to local storage
             $download->update(['status' => 'downloading']);
 
@@ -71,7 +87,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
             // Ensure storage directory exists
             Storage::disk('public')->makeDirectory($relativeDir);
 
-            $fullStoragePath = storage_path('app/public/' . $relativeFilePath);
+            $fullStoragePath = Storage::disk('public')->path($relativeFilePath);
 
             $debridUrl = $download->debrid_link;
             $totalSize = $download->filesize;
@@ -103,6 +119,18 @@ class ProcessDebridDownloadJob implements ShouldQueue
             $lastException = null;
 
             foreach ($orderedProxies as $proxy) {
+                if (Cache::has("cancel_download_{$downloadUuid}")) {
+                    Log::info("ProcessDebridDownloadJob: Cancelled before starting proxy transfer (UUID: {$downloadUuid})");
+                    if (file_exists($fullStoragePath)) {
+                        @unlink($fullStoragePath);
+                    }
+                    if (Storage::disk('public')->exists($relativeDir)) {
+                        Storage::disk('public')->deleteDirectory($relativeDir);
+                    }
+                    Cache::forget("cancel_download_{$downloadUuid}");
+                    return;
+                }
+
                 try {
                     $guzzleConfig = [
                         'verify' => false,
@@ -119,17 +147,27 @@ class ProcessDebridDownloadJob implements ShouldQueue
 
                     $response = $client->request('GET', $debridUrl, [
                         'sink' => $fullStoragePath,
-                        'progress' => function ($downloadTotal, $downloadedBytes) use ($download, &$lastUpdate, &$downloadedSoFar) {
+                        'progress' => function ($downloadTotal, $downloadedBytes) use ($download, $downloadUuid, &$lastUpdate, &$downloadedSoFar) {
                             $downloadedSoFar = $downloadedBytes;
                             $now = time();
+
+                            // Instant abort check during download
+                            if (Cache::has("cancel_download_{$downloadUuid}")) {
+                                throw new \RuntimeException('DOWNLOAD_CANCELLED_BY_USER');
+                            }
+
                             // Throttle DB updates to once per second to avoid DB locks
                             if ($now - $lastUpdate >= 1 || ($downloadTotal > 0 && $downloadedBytes >= $downloadTotal)) {
                                 $lastUpdate = $now;
+                                $fresh = $download->fresh();
+                                if (!$fresh || $fresh->status === 'cancelled') {
+                                    throw new \RuntimeException('DOWNLOAD_CANCELLED_BY_USER');
+                                }
                                 $updateData = ['downloaded_bytes' => $downloadedBytes];
                                 if ($downloadTotal > 0 && $download->filesize <= 0) {
                                     $updateData['filesize'] = $downloadTotal;
                                 }
-                                $download->update($updateData);
+                                $fresh->update($updateData);
                             }
                         },
                     ]);
@@ -147,6 +185,18 @@ class ProcessDebridDownloadJob implements ShouldQueue
                         break;
                     }
                 } catch (Exception $e) {
+                    if ($e->getMessage() === 'DOWNLOAD_CANCELLED_BY_USER' || str_contains($e->getMessage(), 'DOWNLOAD_CANCELLED_BY_USER')) {
+                        Log::info("ProcessDebridDownloadJob: User requested cancellation, instantly killing socket and cleaning files (UUID: {$downloadUuid})");
+                        if (file_exists($fullStoragePath)) {
+                            @unlink($fullStoragePath);
+                        }
+                        if (Storage::disk('public')->exists($relativeDir)) {
+                            Storage::disk('public')->deleteDirectory($relativeDir);
+                        }
+                        Cache::forget("cancel_download_{$downloadUuid}");
+                        return; // Stop job immediately without retrying proxies!
+                    }
+
                     $lastException = $e;
                     Log::warning("ProcessDebridDownloadJob proxy " . ($proxy ?: 'Direct') . " download failed: " . $e->getMessage() . ". Retrying with next proxy...");
                     if (file_exists($fullStoragePath)) {
@@ -160,11 +210,23 @@ class ProcessDebridDownloadJob implements ShouldQueue
             }
 
         } catch (Exception $e) {
-            Log::error("ProcessDebridDownloadJob Error (UUID: {$download->uuid}): " . $e->getMessage());
-            $download->update([
-                'status' => 'failed',
-                'error_message' => 'İndirme hatası: ' . $e->getMessage(),
-            ]);
+            if ($e->getMessage() === 'DOWNLOAD_CANCELLED_BY_USER' || str_contains($e->getMessage(), 'DOWNLOAD_CANCELLED_BY_USER')) {
+                Log::info("ProcessDebridDownloadJob: Cancelled and halted cleanly (UUID: {$downloadUuid})");
+                if (isset($fullStoragePath) && file_exists($fullStoragePath)) {
+                    @unlink($fullStoragePath);
+                }
+                Cache::forget("cancel_download_{$downloadUuid}");
+                return;
+            }
+
+            Log::error("ProcessDebridDownloadJob Error (UUID: {$downloadUuid}): " . $e->getMessage());
+            $fresh = $download->fresh();
+            if ($fresh && $fresh->status !== 'cancelled') {
+                $fresh->update([
+                    'status' => 'failed',
+                    'error_message' => 'İndirme hatası: ' . $e->getMessage(),
+                ]);
+            }
         }
     }
 }

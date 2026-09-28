@@ -152,4 +152,35 @@ class DebridProxyTest extends TestCase
         $this->assertNull($result['proxy']);
         $this->assertTrue($result['qualified']);
     }
+
+    public function test_cancelling_download_sets_cache_flag_and_cleans_up()
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        \Illuminate\Support\Facades\Cache::flush();
+
+        $storagePath = 'downloads/cancel-test-uuid/partial_movie.rar';
+        \Illuminate\Support\Facades\Storage::disk('public')->put($storagePath, 'partial download data');
+
+        $download = DebridDownload::create([
+            'uuid' => 'cancel-test-uuid',
+            'original_link' => 'https://mega.nz/file/testcancel#key',
+            'link_hash' => md5('https://mega.nz/file/testcancel#key'),
+            'status' => 'downloading',
+            'storage_path' => $storagePath,
+        ]);
+
+        $response = $this->deleteJson('/downloads/' . $download->uuid);
+
+        $response->assertStatus(200);
+        $response->assertJson(['success' => true]);
+
+        // Cancellation flag must be set in Cache so background worker halts Guzzle transfer
+        $this->assertTrue(\Illuminate\Support\Facades\Cache::has('cancel_download_cancel-test-uuid'));
+
+        // Database record must be deleted
+        $this->assertDatabaseMissing('debrid_downloads', ['uuid' => 'cancel-test-uuid']);
+
+        // Physical file must be deleted
+        \Illuminate\Support\Facades\Storage::disk('public')->assertMissing($storagePath);
+    }
 }
