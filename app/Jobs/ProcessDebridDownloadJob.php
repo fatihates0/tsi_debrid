@@ -84,6 +84,9 @@ class ProcessDebridDownloadJob implements ShouldQueue
                 'verify' => false,
                 RequestOptions::TIMEOUT => 7200,
                 RequestOptions::CONNECT_TIMEOUT => 30,
+                'curl' => [
+                    CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4,
+                ],
             ]);
 
             $response = $client->request('GET', $debridUrl, [
