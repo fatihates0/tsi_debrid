@@ -71,6 +71,42 @@ class RealDebridService
     }
 
     /**
+     * Build ordered candidate proxy list for API calls
+     */
+    public static function getCandidateProxiesForApi(): array
+    {
+        $proxies = self::getProxyList();
+        if (empty($proxies)) {
+            return [null];
+        }
+
+        $candidates = [];
+
+        // 1. Prioritize last verified working proxy
+        $workingProxy = \Illuminate\Support\Facades\Cache::get('last_working_rd_proxy');
+        if ($workingProxy && in_array($workingProxy, $proxies, true)) {
+            $candidates[] = $workingProxy;
+        }
+
+        // 2. Add candidates from list (up to 8 candidates to find a working one fast)
+        foreach ($proxies as $p) {
+            if (!in_array($p, $candidates, true)) {
+                $candidates[] = $p;
+            }
+            if (count($candidates) >= 8) {
+                break;
+            }
+        }
+
+        // 3. Fallback to direct connection only if server IP is not known to be blocked
+        if (!\Illuminate\Support\Facades\Cache::has('rd_direct_ip_blocked')) {
+            $candidates[] = null;
+        }
+
+        return $candidates;
+    }
+
+    /**
      * Get Real-Debrid User Information & Premium Status
      */
     public function getUserInfo(): array
@@ -84,11 +120,7 @@ class RealDebridService
 
         // Cache user info for 30s to prevent spamming RD API and avoiding gateway timeouts
         return \Illuminate\Support\Facades\Cache::remember('rd_user_info', 30, function () {
-            $proxies = self::getProxyList();
-            // Try at most 3 proxies then direct connection fallback
-            $candidates = array_slice($proxies, 0, 3);
-            $candidates[] = null; // direct connection fallback
-
+            $candidates = self::getCandidateProxiesForApi();
             $lastError = 'Bağlantı kurulamadı.';
 
             foreach ($candidates as $proxy) {
@@ -106,6 +138,10 @@ class RealDebridService
                     ])->withOptions($options)->timeout(5)->get($this->baseUrl . 'user');
 
                     if ($response->successful()) {
+                        if ($proxy) {
+                            \Illuminate\Support\Facades\Cache::put('last_working_rd_proxy', $proxy, now()->addHours(2));
+                        }
+
                         $data = $response->json();
                         return [
                             'success' => true,
@@ -124,8 +160,17 @@ class RealDebridService
                     $errorMsg = $response->json('error') ?? $response->body();
                     $lastError = 'Real-Debrid API Hatası (' . $response->status() . '): ' . $errorMsg;
 
-                    if ($proxy && (in_array($response->status(), [402, 407, 502, 503, 504]) || str_contains(strtolower((string) $errorMsg), 'proxy'))) {
-                        Log::warning("Proxy {$proxy} getUserInfo failed ({$response->status()}). Retrying with next proxy...");
+                    $isIpBlocked = str_contains(strtolower((string) $errorMsg), 'ip_not_allowed');
+                    if ($isIpBlocked && $proxy === null) {
+                        \Illuminate\Support\Facades\Cache::put('rd_direct_ip_blocked', true, now()->addHours(6));
+                    }
+
+                    $isRetryable = $isIpBlocked
+                        || in_array($response->status(), [402, 403, 407, 502, 503, 504])
+                        || str_contains(strtolower((string) $errorMsg), 'proxy');
+
+                    if ($proxy && $isRetryable) {
+                        Log::warning("Proxy {$proxy} getUserInfo failed ({$response->status()} - {$errorMsg}). Retrying with next proxy...");
                         continue;
                     }
 
@@ -133,9 +178,9 @@ class RealDebridService
                         'success' => false,
                         'message' => $lastError,
                     ];
-                } catch (Exception $e) {
+                } catch (\Throwable $e) {
                     $lastError = 'Bağlantı hatası: ' . $e->getMessage();
-                    Log::warning("Proxy " . ($proxy ?: 'Direct') . " getUserInfo exception: " . $e->getMessage());
+                    Log::warning("Proxy " . ($proxy ?: 'Direct') . " getUserInfo exception: " . $e->getMessage() . ". Retrying with next proxy...");
                 }
             }
 
@@ -162,11 +207,7 @@ class RealDebridService
             ];
         }
 
-        $proxies = self::getProxyList();
-        // Limit proxy attempts for API calls to max 3 plus direct fallback to prevent Nginx timeouts
-        $candidates = array_slice($proxies, 0, 3);
-        $candidates[] = null; // direct connection fallback
-
+        $candidates = self::getCandidateProxiesForApi();
         $lastError = 'Bağlantı kurulamadı.';
 
         foreach ($candidates as $proxy) {
@@ -193,6 +234,10 @@ class RealDebridService
                 ])->withOptions($options)->asForm()->timeout(8)->post($this->baseUrl . 'unrestrict/link', $payload);
 
                 if ($response->successful()) {
+                    if ($proxy) {
+                        \Illuminate\Support\Facades\Cache::put('last_working_rd_proxy', $proxy, now()->addHours(2));
+                    }
+
                     $data = $response->json();
                     return [
                         'success' => true,
@@ -218,8 +263,17 @@ class RealDebridService
                     return $this->unrestrictLink($link, $password, false);
                 }
 
-                if ($proxy && (in_array($response->status(), [402, 407, 502, 503, 504]) || str_contains(strtolower((string) $errorMsg), 'proxy'))) {
-                    Log::warning("Proxy {$proxy} unrestrictLink failed ({$response->status()}). Retrying with next proxy...");
+                $isIpBlocked = str_contains(strtolower((string) $errorMsg), 'ip_not_allowed');
+                if ($isIpBlocked && $proxy === null) {
+                    \Illuminate\Support\Facades\Cache::put('rd_direct_ip_blocked', true, now()->addHours(6));
+                }
+
+                $isRetryable = $isIpBlocked
+                    || in_array($response->status(), [402, 403, 407, 502, 503, 504])
+                    || str_contains(strtolower((string) $errorMsg), 'proxy');
+
+                if ($proxy && $isRetryable) {
+                    Log::warning("Proxy {$proxy} unrestrictLink failed ({$response->status()} - {$errorMsg}). Retrying with next proxy...");
                     continue;
                 }
 
@@ -227,7 +281,7 @@ class RealDebridService
                     'success' => false,
                     'message' => $lastError,
                 ];
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 $lastError = 'İstek hatası: ' . $e->getMessage();
                 Log::warning("Proxy " . ($proxy ?: 'Direct') . " unrestrictLink exception: " . $e->getMessage() . ". Retrying with next proxy...");
             }
