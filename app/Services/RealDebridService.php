@@ -47,9 +47,7 @@ class RealDebridService
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $this->apiToken,
             ])->withOptions([
-                'curl' => [
-                    CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4,
-                ],
+                'force_ip_resolve' => 'v4',
             ])->timeout(10)->get($this->baseUrl . 'user');
 
             if ($response->successful()) {
@@ -110,9 +108,7 @@ class RealDebridService
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $this->apiToken,
             ])->withOptions([
-                'curl' => [
-                    CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4,
-                ],
+                'force_ip_resolve' => 'v4',
             ])->asForm()->timeout(15)->post($this->baseUrl . 'unrestrict/link', $payload);
 
             if ($response->successful()) {
