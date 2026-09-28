@@ -10,3 +10,6 @@ Route::prefix('v1')->group(function () {
     Route::delete('/downloads/{uuid}', [DebridApiController::class, 'destroy']);
     Route::get('/account/status', [DebridApiController::class, 'accountStatus']);
 });
+
+// IDM Direct Download API Route
+Route::get('/indir/{link?}', [DebridApiController::class, 'directDownload'])->where('link', '.*');

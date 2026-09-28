@@ -400,7 +400,12 @@
                     <span>REST API Entegrasyon Rehberi</span>
                 </h3>
                 <p class="text-xs text-slate-400">Bu Laravel proxy servisini diğer yazılımlarınızdan veya botlarınızdan API ile tetikleyebilirsiniz:</p>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
+                    <div class="bg-slate-900/90 rounded-xl p-3.5 border border-slate-800 space-y-2">
+                        <div class="text-amber-400 font-bold">GET /api/indir/{link}</div>
+                        <div class="text-slate-400"><i class="fa-solid fa-bolt text-amber-400"></i> IDM & Direk İndirme Endpoint'i</div>
+                        <div class="text-slate-500">IDM'ye eklendiğinde linki anında Real-Debrid ile çözüp indirmeyi başlatır.</div>
+                    </div>
                     <div class="bg-slate-900/90 rounded-xl p-3.5 border border-slate-800 space-y-2">
                         <div class="text-emerald-400 font-bold">POST /api/v1/downloads</div>
                         <div class="text-slate-400">Body: <code class="text-indigo-300">{"link": "https://mega.nz/..."}</code></div>

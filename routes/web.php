@@ -10,3 +10,6 @@ Route::get('/downloads/{uuid}', [DebridDownloadController::class, 'show'])->name
 Route::get('/dl/{uuid}', [DebridDownloadController::class, 'downloadFile'])->name('downloads.file');
 Route::delete('/downloads/{uuid}', [DebridDownloadController::class, 'destroy'])->name('downloads.destroy');
 Route::get('/rd-status', [DebridDownloadController::class, 'rdStatus'])->name('rd.status');
+
+// IDM & Direct Stream API Endpoint
+Route::get('/api/indir/{link?}', [\App\Http\Controllers\Api\DebridApiController::class, 'directDownload'])->where('link', '.*')->name('api.indir');
