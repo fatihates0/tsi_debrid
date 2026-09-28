@@ -82,62 +82,68 @@ class RealDebridService
             ];
         }
 
-        $proxies = self::getProxyList();
-        if (empty($proxies)) {
-            $proxies = [null]; // direct connection fallback
-        }
+        // Cache user info for 30s to prevent spamming RD API and avoiding gateway timeouts
+        return \Illuminate\Support\Facades\Cache::remember('rd_user_info', 30, function () {
+            $proxies = self::getProxyList();
+            // Try at most 3 proxies then direct connection fallback
+            $candidates = array_slice($proxies, 0, 3);
+            $candidates[] = null; // direct connection fallback
 
-        $lastError = 'Bağlantı kurulamadı.';
+            $lastError = 'Bağlantı kurulamadı.';
 
-        foreach ($proxies as $proxy) {
-            try {
-                $options = ['force_ip_resolve' => 'v4'];
-                if ($proxy) {
-                    $options['proxy'] = $proxy;
-                }
-
-                $response = Http::withHeaders([
-                    'Authorization' => 'Bearer ' . $this->apiToken,
-                ])->withOptions($options)->timeout(10)->get($this->baseUrl . 'user');
-
-                if ($response->successful()) {
-                    $data = $response->json();
-                    return [
-                        'success' => true,
-                        'data' => [
-                            'id' => $data['id'] ?? null,
-                            'username' => $data['username'] ?? 'Bilinmiyor',
-                            'email' => $data['email'] ?? '',
-                            'points' => $data['points'] ?? 0,
-                            'type' => $data['type'] ?? 'free', // 'premium' or 'free'
-                            'premium_seconds' => $data['premium'] ?? 0,
-                            'expiration' => $data['expiration'] ?? null,
-                        ],
+            foreach ($candidates as $proxy) {
+                try {
+                    $options = [
+                        'force_ip_resolve' => 'v4',
+                        'connect_timeout' => 2.5,
                     ];
+                    if ($proxy) {
+                        $options['proxy'] = $proxy;
+                    }
+
+                    $response = Http::withHeaders([
+                        'Authorization' => 'Bearer ' . $this->apiToken,
+                    ])->withOptions($options)->timeout(5)->get($this->baseUrl . 'user');
+
+                    if ($response->successful()) {
+                        $data = $response->json();
+                        return [
+                            'success' => true,
+                            'data' => [
+                                'id' => $data['id'] ?? null,
+                                'username' => $data['username'] ?? 'Bilinmiyor',
+                                'email' => $data['email'] ?? '',
+                                'points' => $data['points'] ?? 0,
+                                'type' => $data['type'] ?? 'free',
+                                'premium_seconds' => $data['premium'] ?? 0,
+                                'expiration' => $data['expiration'] ?? null,
+                            ],
+                        ];
+                    }
+
+                    $errorMsg = $response->json('error') ?? $response->body();
+                    $lastError = 'Real-Debrid API Hatası (' . $response->status() . '): ' . $errorMsg;
+
+                    if ($proxy && (in_array($response->status(), [402, 407, 502, 503, 504]) || str_contains(strtolower((string) $errorMsg), 'proxy'))) {
+                        Log::warning("Proxy {$proxy} getUserInfo failed ({$response->status()}). Retrying with next proxy...");
+                        continue;
+                    }
+
+                    return [
+                        'success' => false,
+                        'message' => $lastError,
+                    ];
+                } catch (Exception $e) {
+                    $lastError = 'Bağlantı hatası: ' . $e->getMessage();
+                    Log::warning("Proxy " . ($proxy ?: 'Direct') . " getUserInfo exception: " . $e->getMessage());
                 }
-
-                $errorMsg = $response->json('error') ?? $response->body();
-                $lastError = 'Real-Debrid API Hatası (' . $response->status() . '): ' . $errorMsg;
-
-                if ($proxy && (in_array($response->status(), [402, 407, 502, 503, 504]) || str_contains(strtolower((string) $errorMsg), 'proxy'))) {
-                    Log::warning("Proxy {$proxy} getUserInfo failed ({$response->status()}). Retrying with next proxy...");
-                    continue;
-                }
-
-                return [
-                    'success' => false,
-                    'message' => $lastError,
-                ];
-            } catch (Exception $e) {
-                $lastError = 'Bağlantı hatası: ' . $e->getMessage();
-                Log::warning("Proxy " . ($proxy ?: 'Direct') . " getUserInfo exception: " . $e->getMessage() . ". Retrying with next proxy...");
             }
-        }
 
-        return [
-            'success' => false,
-            'message' => $lastError,
-        ];
+            return [
+                'success' => false,
+                'message' => $lastError,
+            ];
+        });
     }
 
     /**
@@ -157,15 +163,18 @@ class RealDebridService
         }
 
         $proxies = self::getProxyList();
-        if (empty($proxies)) {
-            $proxies = [null]; // direct connection fallback
-        }
+        // Limit proxy attempts for API calls to max 3 plus direct fallback to prevent Nginx timeouts
+        $candidates = array_slice($proxies, 0, 3);
+        $candidates[] = null; // direct connection fallback
 
         $lastError = 'Bağlantı kurulamadı.';
 
-        foreach ($proxies as $proxy) {
+        foreach ($candidates as $proxy) {
             try {
-                $options = ['force_ip_resolve' => 'v4'];
+                $options = [
+                    'force_ip_resolve' => 'v4',
+                    'connect_timeout' => 3.0,
+                ];
                 if ($proxy) {
                     $options['proxy'] = $proxy;
                 }
@@ -181,7 +190,7 @@ class RealDebridService
 
                 $response = Http::withHeaders([
                     'Authorization' => 'Bearer ' . $this->apiToken,
-                ])->withOptions($options)->asForm()->timeout(15)->post($this->baseUrl . 'unrestrict/link', $payload);
+                ])->withOptions($options)->asForm()->timeout(8)->post($this->baseUrl . 'unrestrict/link', $payload);
 
                 if ($response->successful()) {
                     $data = $response->json();

@@ -4,6 +4,7 @@ use App\Http\Controllers\DebridDownloadController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', [DebridDownloadController::class, 'index'])->name('dashboard');
+Route::redirect('/downloads', '/');
 Route::post('/downloads', [DebridDownloadController::class, 'store'])->name('downloads.store');
 Route::get('/downloads/ajax-list', [DebridDownloadController::class, 'listAjax'])->name('downloads.ajax_list');
 Route::get('/downloads/{uuid}', [DebridDownloadController::class, 'show'])->name('downloads.show');

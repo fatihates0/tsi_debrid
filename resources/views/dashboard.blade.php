@@ -169,8 +169,7 @@
 
             <!-- HERO SUBMISSION FORM -->
             <div class="glass-card rounded-2xl p-6 shadow-2xl relative">
-                <form action="{{ route('downloads.store') }}" method="POST" class="space-y-4">
-                    @csrf
+                <form @submit.prevent="submitLink()" class="space-y-4">
                     <label for="link" class="block text-sm font-semibold text-slate-200">
                         İndirme Bağlantısı
                     </label>
@@ -180,21 +179,25 @@
                                 class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
                                 <i class="fa-solid fa-link"></i>
                             </div>
-                            <input type="url" name="link" id="link" required placeholder="https://mega.nz/file/..."
+                            <input type="url" x-model="inputUrl" id="link" required placeholder="https://mega.nz/file/..."
                                 class="w-full pl-11 pr-24 py-3.5 rounded-xl glass-input text-sm text-white placeholder-slate-500 focus:outline-none transition-all duration-200">
                             <button type="button" @click="pasteClipboard()"
                                 class="absolute right-2.5 top-2.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors flex items-center gap-1.5">
                                 <i class="fa-solid fa-paste"></i> Yapıştır
                             </button>
                         </div>
-                        <button type="submit"
-                            class="px-7 py-3.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold text-sm shadow-lg shadow-indigo-600/30 hover:shadow-indigo-500/50 transition-all duration-200 flex items-center justify-center gap-2 shrink-0">
-                            <i class="fa-solid fa-cloud-arrow-down"></i>
-                            <span>İndir & Önbellekle</span>
+                        <button type="submit" :disabled="isSubmitting"
+                            class="px-7 py-3.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold text-sm shadow-lg shadow-indigo-600/30 hover:shadow-indigo-500/50 transition-all duration-200 flex items-center justify-center gap-2 shrink-0 disabled:opacity-50">
+                            <span x-show="!isSubmitting" class="flex items-center gap-2">
+                                <i class="fa-solid fa-cloud-arrow-down"></i>
+                                <span>İndir & Önbellekle</span>
+                            </span>
+                            <span x-show="isSubmitting" x-cloak class="flex items-center gap-2">
+                                <i class="fa-solid fa-spinner animate-spin"></i>
+                                <span>Kuyruğa Alınıyor...</span>
+                            </span>
                         </button>
                     </div>
-
-
                 </form>
             </div>
 
@@ -430,6 +433,8 @@
     <script>
         function debridApp() {
             return {
+                inputUrl: '',
+                isSubmitting: false,
                 downloadsList: [],
                 isRefreshing: false,
                 rdInfo: { loading: true, success: false, data: {} },
@@ -504,11 +509,40 @@
                     }
                 },
 
+                async submitLink() {
+                    const link = (this.inputUrl || '').trim();
+                    if (!link) return;
+
+                    this.isSubmitting = true;
+                    try {
+                        const res = await fetch('/downloads', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                                'Accept': 'application/json',
+                            },
+                            body: JSON.stringify({ link })
+                        });
+                        const json = await res.json();
+                        if (json && json.success) {
+                            this.inputUrl = '';
+                            this.fetchDownloads(true);
+                        } else {
+                            alert(json?.message || 'İndirme kuyruğa eklenirken hata oluştu.');
+                        }
+                    } catch (e) {
+                        alert('İstek gönderilirken hata oluştu.');
+                    } finally {
+                        this.isSubmitting = false;
+                    }
+                },
+
                 async pasteClipboard() {
                     try {
                         const text = await navigator.clipboard.readText();
                         if (text) {
-                            document.getElementById('link').value = text.trim();
+                            this.inputUrl = text.trim();
                         }
                     } catch (e) {
                         alert('Panoya erişilemedi.');

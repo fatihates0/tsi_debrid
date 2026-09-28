@@ -84,7 +84,11 @@ class DebridApiController extends Controller
                 : config('services.realdebrid.use_remote', true),
         ]);
 
-        ProcessDebridDownloadJob::dispatch($download);
+        if (config('queue.default') === 'sync') {
+            ProcessDebridDownloadJob::dispatchAfterResponse($download);
+        } else {
+            ProcessDebridDownloadJob::dispatch($download);
+        }
 
         return response()->json([
             'status' => 'success',

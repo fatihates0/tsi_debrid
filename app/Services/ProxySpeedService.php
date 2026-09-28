@@ -60,9 +60,12 @@ class ProxySpeedService
         $fastestProxy = null;
         $maxSpeed = 0.0;
 
-        Log::info("Probing " . count($normalizedProxies) . " proxies for minimum speed: {$minSpeed} Mbps...");
+        // Test at most 6 proxies during speed probe to keep benchmarking quick (<15s)
+        $candidates = array_slice($normalizedProxies, 0, 6);
 
-        foreach ($normalizedProxies as $proxy) {
+        Log::info("Probing " . count($candidates) . " candidate proxies for minimum speed: {$minSpeed} Mbps...");
+
+        foreach ($candidates as $proxy) {
             $speed = $this->measureProxySpeed($proxy, $testUrl);
 
             if ($speed > $maxSpeed) {
@@ -88,7 +91,7 @@ class ProxySpeedService
         if ($fastestProxy) {
             Log::warning("No proxy reached {$minSpeed} Mbps. Using fastest candidate: {$fastestProxy} at {$maxSpeed} Mbps.");
         } else {
-            Log::warning("All proxies failed speed test. Falling back to direct connection.");
+            Log::warning("All candidate proxies failed speed test. Falling back to direct connection.");
         }
 
         return [
@@ -106,8 +109,8 @@ class ProxySpeedService
         try {
             $guzzleConfig = [
                 'verify' => false,
-                RequestOptions::TIMEOUT => 8,
-                RequestOptions::CONNECT_TIMEOUT => 3, // Skip unresponsive proxies in <= 3 seconds
+                RequestOptions::TIMEOUT => 5,
+                RequestOptions::CONNECT_TIMEOUT => 2.0, // Skip unresponsive proxies in <= 2 seconds
                 'force_ip_resolve' => 'v4',
                 RequestOptions::HEADERS => [
                     'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',

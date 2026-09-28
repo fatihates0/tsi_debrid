@@ -93,8 +93,12 @@ class DebridDownloadController extends Controller
             'use_remote' => $request->has('use_remote') ? $request->boolean('use_remote') : config('services.realdebrid.use_remote', true),
         ]);
 
-        // Dispatch job to queue or sync depending on config
-        ProcessDebridDownloadJob::dispatch($download);
+        // Dispatch job to queue (or dispatchAfterResponse if sync to prevent 504 Gateway Timeout)
+        if (config('queue.default') === 'sync') {
+            ProcessDebridDownloadJob::dispatchAfterResponse($download);
+        } else {
+            ProcessDebridDownloadJob::dispatch($download);
+        }
 
         if ($request->wantsJson()) {
             return response()->json([
