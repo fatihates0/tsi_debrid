@@ -32,6 +32,23 @@ class RealDebridService
     }
 
     /**
+     * Get default HTTP client options (IPv4 force & Proxy support)
+     */
+    protected function getHttpOptions(): array
+    {
+        $options = [
+            'force_ip_resolve' => 'v4',
+        ];
+
+        $proxy = config('services.realdebrid.proxy');
+        if (!empty($proxy)) {
+            $options['proxy'] = $proxy;
+        }
+
+        return $options;
+    }
+
+    /**
      * Get Real-Debrid User Information & Premium Status
      */
     public function getUserInfo(): array
@@ -46,9 +63,7 @@ class RealDebridService
         try {
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $this->apiToken,
-            ])->withOptions([
-                'force_ip_resolve' => 'v4',
-            ])->timeout(10)->get($this->baseUrl . 'user');
+            ])->withOptions($this->getHttpOptions())->timeout(10)->get($this->baseUrl . 'user');
 
             if ($response->successful()) {
                 $data = $response->json();
@@ -107,9 +122,7 @@ class RealDebridService
 
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $this->apiToken,
-            ])->withOptions([
-                'force_ip_resolve' => 'v4',
-            ])->asForm()->timeout(15)->post($this->baseUrl . 'unrestrict/link', $payload);
+            ])->withOptions($this->getHttpOptions())->asForm()->timeout(15)->post($this->baseUrl . 'unrestrict/link', $payload);
 
             if ($response->successful()) {
                 $data = $response->json();

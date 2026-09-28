@@ -80,12 +80,19 @@ class ProcessDebridDownloadJob implements ShouldQueue
             $downloadedSoFar = 0;
 
             // Stream download using Guzzle sink with progress callback
-            $client = new GuzzleClient([
+            $guzzleConfig = [
                 'verify' => false,
                 RequestOptions::TIMEOUT => 7200,
                 RequestOptions::CONNECT_TIMEOUT => 30,
                 'force_ip_resolve' => 'v4',
-            ]);
+            ];
+
+            $proxy = config('services.realdebrid.proxy');
+            if (!empty($proxy)) {
+                $guzzleConfig['proxy'] = $proxy;
+            }
+
+            $client = new GuzzleClient($guzzleConfig);
 
             $response = $client->request('GET', $debridUrl, [
                 'sink' => $fullStoragePath,
