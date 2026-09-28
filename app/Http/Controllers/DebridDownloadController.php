@@ -8,7 +8,8 @@ use App\Services\RealDebridService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DebridDownloadController extends Controller
 {
@@ -132,44 +133,104 @@ class DebridDownloadController extends Controller
     }
 
     /**
-     * Direct local download to user (Proxy file serving)
+     * Direct local download to user (Proxy file serving with Range & HEAD support for IDM)
      */
-    public function downloadFile(string $uuid): BinaryFileResponse
-    {
-        $download = DebridDownload::where('uuid', $uuid)->firstOrFail();
+     public function downloadFile(Request $request, string $uuid): Response
+     {
+         $download = DebridDownload::where('uuid', $uuid)->firstOrFail();
 
-        if ($download->status !== 'completed' || empty($download->storage_path)) {
-            abort(404, 'Dosya henüz hazır değil veya sunucuda bulunamadı.');
-        }
+         if ($download->status !== 'completed' || empty($download->storage_path)) {
+             abort(404, 'Dosya henüz hazır değil veya sunucuda bulunamadı.');
+         }
 
-        $fullPath = Storage::disk('public')->path($download->storage_path);
+         $fullPath = Storage::disk('public')->path($download->storage_path);
 
-        if (!file_exists($fullPath)) {
-            abort(404, 'Fiziksel dosya disk üzerinde bulunamadı.');
-        }
+         if (!file_exists($fullPath)) {
+             abort(404, 'Fiziksel dosya disk üzerinde bulunamadı.');
+         }
 
-        // Increment download count tracker
-        $download->increment('download_count');
+         // Increment download count tracker on initial download (not on range chunks or HEAD)
+         $rangeHeader = $request->header('Range');
+         if (!$request->isMethod('HEAD') && (!$rangeHeader || str_starts_with($rangeHeader, 'bytes=0-'))) {
+             $download->increment('download_count');
+         }
 
-        $fileSize = filesize($fullPath);
-        $filename = $download->filename ?: basename($fullPath);
+         $fileSize = filesize($fullPath);
+         $filename = $download->filename ?: basename($fullPath);
+         $mimeType = $download->mime_type ?: 'application/octet-stream';
 
-        // Turn off / flush output buffers to prevent PHP/Nginx chunked transfer encoding from stripping Content-Length
-        while (ob_get_level() > 0) {
-            @ob_end_clean();
-        }
+         $start = 0;
+         $end = $fileSize > 0 ? $fileSize - 1 : 0;
+         $isRange = false;
 
-        $headers = [
-            'Content-Type' => $download->mime_type ?: 'application/octet-stream',
-            'Content-Length' => (string) $fileSize,
-            'Accept-Ranges' => 'bytes',
-            'X-Accel-Buffering' => 'no',
-            'Cache-Control' => 'private, no-transform, no-store, must-revalidate',
-            'Pragma' => 'no-cache',
-        ];
+         if ($rangeHeader && preg_match('/bytes=(\d+)-(\d*)?/i', $rangeHeader, $matches)) {
+             $isRange = true;
+             $start = (int) $matches[1];
+             if (isset($matches[2]) && $matches[2] !== '') {
+                 $end = min((int) $matches[2], $fileSize > 0 ? $fileSize - 1 : (int) $matches[2]);
+             }
+         }
 
-        return response()->download($fullPath, $filename, $headers);
-    }
+         $length = $fileSize > 0 ? max(0, ($end - $start) + 1) : 0;
+
+         $encodedFilename = rawurlencode($filename);
+         $contentDisposition = 'attachment; filename="' . addslashes($filename) . '"; filename*=UTF-8\'\'' . $encodedFilename;
+
+         $headers = [
+             'Content-Type' => $mimeType,
+             'Content-Disposition' => $contentDisposition,
+             'Accept-Ranges' => 'bytes',
+             'Cache-Control' => 'no-cache, private',
+         ];
+
+         // 1. HEAD request - used by IDM and download managers for pre-fetch size inspection
+         if ($request->isMethod('HEAD')) {
+             if ($fileSize > 0) {
+                 $headers['Content-Length'] = (string) $fileSize;
+             }
+             return response('', 200, $headers);
+         }
+
+         // 2. Partial Range request (IDM 0-0 probe, multi-threaded range chunks, resumed downloads)
+         if ($isRange) {
+             $headers['Content-Length'] = (string) $length;
+             if ($fileSize > 0) {
+                 $headers['Content-Range'] = "bytes {$start}-{$end}/{$fileSize}";
+             }
+             $statusCode = 206;
+         } else {
+             // 3. Normal full GET request
+             $headers['Content-Length'] = (string) $fileSize;
+             $statusCode = 200;
+         }
+
+         return new StreamedResponse(function () use ($fullPath, $start, $length) {
+             if (! app()->environment('testing')) {
+                 while (ob_get_level() > 0) {
+                     @ob_end_clean();
+                 }
+             }
+
+             $stream = fopen($fullPath, 'rb');
+             if ($stream) {
+                 fseek($stream, $start);
+                 $remaining = $length;
+                 $bufferSize = 1048576; // 1 MB chunk buffer
+
+                 while (! feof($stream) && $remaining > 0) {
+                     $readSize = min($bufferSize, $remaining);
+                     $data = fread($stream, $readSize);
+                     if ($data === false) {
+                         break;
+                     }
+                     echo $data;
+                     flush();
+                     $remaining -= strlen($data);
+                 }
+                 fclose($stream);
+             }
+         }, $statusCode, $headers);
+     }
 
     /**
      * Delete cached download file

@@ -3,6 +3,13 @@
         Options -MultiViews -Indexes
     </IfModule>
 
+    # Allow Content-Length and Range headers to pass through FastCGI
+    # without Apache stripping them (CVE-2024-24795)
+    <IfModule mod_env.c>
+        SetEnv ap_trust_cgilike_cl 1
+        SetEnv no-gzip 1
+    </IfModule>
+
     RewriteEngine On
 
     # Handle Authorization Header

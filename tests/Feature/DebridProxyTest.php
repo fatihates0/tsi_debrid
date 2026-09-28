@@ -105,11 +105,35 @@ class DebridProxyTest extends TestCase
             'mime_type' => 'application/x-rar-compressed',
         ]);
 
+        // 1. Full GET request
         $response = $this->get('/dl/' . $download->uuid);
-
         $response->assertStatus(200);
         $response->assertHeader('Content-Length', (string) $expectedSize);
         $response->assertHeader('Accept-Ranges', 'bytes');
-        $response->assertHeader('X-Accel-Buffering', 'no');
+        $this->assertEquals($content, $response->streamedContent());
+
+        // 2. HEAD request (IDM size pre-check)
+        $headResponse = $this->call('HEAD', '/dl/' . $download->uuid);
+        $headResponse->assertStatus(200);
+        $headResponse->assertHeader('Content-Length', (string) $expectedSize);
+        $headResponse->assertHeader('Accept-Ranges', 'bytes');
+
+        // 3. IDM Range 0-0 probe (1-byte probe to check total size and range support)
+        $probeResponse = $this->get('/dl/' . $download->uuid, [
+            'Range' => 'bytes=0-0',
+        ]);
+        $probeResponse->assertStatus(206);
+        $probeResponse->assertHeader('Content-Range', "bytes 0-0/{$expectedSize}");
+        $probeResponse->assertHeader('Content-Length', '1');
+        $this->assertEquals(substr($content, 0, 1), $probeResponse->streamedContent());
+
+        // 4. Partial byte range chunk request (IDM multi-threaded download)
+        $chunkResponse = $this->get('/dl/' . $download->uuid, [
+            'Range' => 'bytes=0-9',
+        ]);
+        $chunkResponse->assertStatus(206);
+        $chunkResponse->assertHeader('Content-Range', "bytes 0-9/{$expectedSize}");
+        $chunkResponse->assertHeader('Content-Length', '10');
+        $this->assertEquals(substr($content, 0, 10), $chunkResponse->streamedContent());
     }
 }

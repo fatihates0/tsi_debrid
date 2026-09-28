@@ -12,4 +12,4 @@ Route::prefix('v1')->group(function () {
 });
 
 // IDM Direct Download API Route
-Route::get('/indir/{link?}', [DebridApiController::class, 'directDownload'])->where('link', '.*');
+Route::match(['get', 'head'], '/indir/{link?}', [DebridApiController::class, 'directDownload'])->where('link', '.*');
