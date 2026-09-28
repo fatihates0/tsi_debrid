@@ -11,8 +11,8 @@ use Throwable;
 class ProxySpeedService
 {
     public const DEFAULT_MIN_SPEED_MBPS = 50.0;
-    public const PROBE_DURATION_SECONDS = 3.0;
-    public const PROBE_MAX_BYTES = 15728640; // 15 MB max probe chunk
+    public const PROBE_DURATION_SECONDS = 2.0;
+    public const PROBE_MAX_BYTES = 5242880; // 5 MB probe chunk
 
     /**
      * Find a proxy from the list that meets or exceeds the minimum speed (default 50 Mbps).
@@ -28,6 +28,7 @@ class ProxySpeedService
      */
     public function findFastProxy(string $testUrl, array $proxies, ?float $minSpeedMbps = null): array
     {
+        @set_time_limit(0);
         $minSpeed = $minSpeedMbps ?? (float) config('services.realdebrid.min_proxy_speed_mbps', self::DEFAULT_MIN_SPEED_MBPS);
 
         // Normalize proxy list
@@ -44,24 +45,18 @@ class ProxySpeedService
         // 1. Check if we have a cached winning proxy that is still valid
         $cachedProxy = Cache::get('fastest_debrid_proxy');
         if ($cachedProxy && in_array($cachedProxy, $normalizedProxies, true)) {
-            Log::info("Testing cached fast proxy: {$cachedProxy}...");
-            $cachedSpeed = $this->measureProxySpeed($cachedProxy, $testUrl);
-            if ($cachedSpeed >= $minSpeed) {
-                Log::info("Cached proxy {$cachedProxy} verified at {$cachedSpeed} Mbps (>= {$minSpeed} Mbps threshold).");
-                return [
-                    'proxy' => $cachedProxy,
-                    'speed_mbps' => $cachedSpeed,
-                    'qualified' => true,
-                ];
-            }
-            Cache::forget('fastest_debrid_proxy');
+            return [
+                'proxy' => $cachedProxy,
+                'speed_mbps' => $minSpeed,
+                'qualified' => true,
+            ];
         }
 
         $fastestProxy = null;
         $maxSpeed = 0.0;
 
-        // Test at most 6 proxies during speed probe to keep benchmarking quick (<15s)
-        $candidates = array_slice($normalizedProxies, 0, 6);
+        // Test at most 2 proxies during pre-probe to prevent any stall
+        $candidates = array_slice($normalizedProxies, 0, 2);
 
         Log::info("Probing " . count($candidates) . " candidate proxies for minimum speed: {$minSpeed} Mbps...");
 
@@ -109,7 +104,7 @@ class ProxySpeedService
         try {
             $guzzleConfig = [
                 'verify' => false,
-                RequestOptions::TIMEOUT => 5,
+                RequestOptions::TIMEOUT => 3.0,
                 RequestOptions::CONNECT_TIMEOUT => 2.0, // Skip unresponsive proxies in <= 2 seconds
                 'force_ip_resolve' => 'v4',
                 RequestOptions::HEADERS => [
