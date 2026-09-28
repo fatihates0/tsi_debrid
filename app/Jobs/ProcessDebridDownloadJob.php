@@ -99,28 +99,27 @@ class ProcessDebridDownloadJob implements ShouldQueue
             $downloadedSoFar = 0;
 
             $proxies = RealDebridService::getProxyList();
-            $minSpeedMbps = (float) config('services.realdebrid.min_proxy_speed_mbps', 50.0);
 
-            // Build prioritized candidate list:
-            // 1. Cached verified fast proxy (if still present in proxy list)
-            // 2. Candidate proxies from list (up to 3 to prevent dead proxy delays)
-            // 3. Direct connection (null) always guaranteed at the end
+            // Proxies are taken directly in sequential order from proxies.txt
             $orderedProxies = [];
             if (!empty($proxies)) {
-                $cachedProxy = Cache::get('fastest_debrid_proxy');
-                if ($cachedProxy && in_array($cachedProxy, $proxies, true)) {
-                    $orderedProxies[] = $cachedProxy;
+                // If a proxy recently succeeded, prioritize it
+                $workingProxy = Cache::get('last_working_rd_proxy');
+                if ($workingProxy && in_array($workingProxy, $proxies, true)) {
+                    $orderedProxies[] = $workingProxy;
                 }
                 foreach ($proxies as $p) {
                     if (!in_array($p, $orderedProxies, true)) {
                         $orderedProxies[] = $p;
                     }
-                    if (count($orderedProxies) >= 3) {
-                        break;
-                    }
                 }
+                // Fallback to direct connection only if direct server IP is not blocked
+                if (!Cache::has('rd_direct_ip_blocked')) {
+                    $orderedProxies[] = null;
+                }
+            } else {
+                $orderedProxies[] = null; // Direct connection if no proxies configured
             }
-            $orderedProxies[] = null; // Direct connection fallback
 
             $downloadSuccess = false;
             $lastException = null;
@@ -139,11 +138,10 @@ class ProcessDebridDownloadJob implements ShouldQueue
                 }
 
                 try {
-                    // Strict connect timeout for proxies (4s) so dead proxies fail immediately
                     $guzzleConfig = [
                         'verify' => false,
                         RequestOptions::TIMEOUT => 7200,
-                        RequestOptions::CONNECT_TIMEOUT => $proxy ? 4.0 : 15.0,
+                        RequestOptions::CONNECT_TIMEOUT => $proxy ? 5.0 : 15.0,
                         'force_ip_resolve' => 'v4',
                     ];
 
@@ -153,8 +151,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
 
                     $client = new GuzzleClient($guzzleConfig);
 
-                    $transferStartTime = microtime(true);
-                    $speedBenchmarkPassed = false;
+                    Log::info("ProcessDebridDownloadJob: Attempting download with proxy " . ($proxy ?: 'Direct') . " (UUID: {$downloadUuid})");
 
                     $response = $client->request('GET', $debridUrl, [
                         'sink' => $fullStoragePath,
@@ -162,38 +159,20 @@ class ProcessDebridDownloadJob implements ShouldQueue
                             $download,
                             $downloadUuid,
                             $proxy,
-                            $minSpeedMbps,
-                            $transferStartTime,
-                            &$speedBenchmarkPassed,
                             &$lastUpdate,
                             &$downloadedSoFar
                         ) {
                             $downloadedSoFar = $downloadedBytes;
-                            $now = microtime(true);
+                            $now = time();
 
                             // Instant abort check during download
                             if (Cache::has("cancel_download_{$downloadUuid}")) {
                                 throw new \RuntimeException('DOWNLOAD_CANCELLED_BY_USER');
                             }
 
-                            // In-flight speed benchmark for proxies:
-                            // After 3 seconds of streaming, evaluate speed. If < 50 Mbps, abort this proxy and switch!
-                            $elapsed = $now - $transferStartTime;
-                            if (!$speedBenchmarkPassed && $proxy !== null && $elapsed >= 3.0) {
-                                $currentSpeedMbps = ($downloadedBytes * 8) / ($elapsed * 1000000);
-                                if ($currentSpeedMbps < $minSpeedMbps && ($downloadTotal <= 0 || $downloadedBytes < ($downloadTotal * 0.85))) {
-                                    Log::warning("ProcessDebridDownloadJob: Proxy {$proxy} speed is {$currentSpeedMbps} Mbps (< {$minSpeedMbps} Mbps threshold). Switching to next proxy...");
-                                    throw new \RuntimeException('PROXY_TOO_SLOW');
-                                }
-                                $speedBenchmarkPassed = true;
-                                Log::info("ProcessDebridDownloadJob: Proxy {$proxy} qualified at {$currentSpeedMbps} Mbps (>= {$minSpeedMbps} Mbps). Caching for 30 minutes.");
-                                Cache::put('fastest_debrid_proxy', $proxy, now()->addMinutes(30));
-                            }
-
                             // Throttle DB updates to once per second to avoid DB locks
-                            $nowSec = (int) $now;
-                            if ($nowSec - $lastUpdate >= 1 || ($downloadTotal > 0 && $downloadedBytes >= $downloadTotal)) {
-                                $lastUpdate = $nowSec;
+                            if ($now - $lastUpdate >= 1 || ($downloadTotal > 0 && $downloadedBytes >= $downloadTotal)) {
+                                $lastUpdate = $now;
                                 $fresh = $download->fresh();
                                 if (!$fresh || $fresh->status === 'cancelled') {
                                     throw new \RuntimeException('DOWNLOAD_CANCELLED_BY_USER');
@@ -208,6 +187,10 @@ class ProcessDebridDownloadJob implements ShouldQueue
                     ]);
 
                     if ($response->getStatusCode() === 200 && file_exists($fullStoragePath)) {
+                        if ($proxy) {
+                            Cache::put('last_working_rd_proxy', $proxy, now()->addHours(2));
+                        }
+
                         $actualFileSize = filesize($fullStoragePath);
                         $download->update([
                             'status' => 'completed',
@@ -217,6 +200,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
                             'filename' => $safeFilename,
                         ]);
                         $downloadSuccess = true;
+                        Log::info("ProcessDebridDownloadJob: Download completed successfully with proxy " . ($proxy ?: 'Direct') . " (UUID: {$downloadUuid})");
                         break;
                     }
                 } catch (\Throwable $e) {
@@ -232,24 +216,20 @@ class ProcessDebridDownloadJob implements ShouldQueue
                         return; // Stop job immediately without retrying proxies!
                     }
 
-                    if ($e->getMessage() === 'PROXY_TOO_SLOW' || str_contains($e->getMessage(), 'PROXY_TOO_SLOW')) {
-                        Log::info("ProcessDebridDownloadJob: Proxy {$proxy} discarded due to low speed. Retrying with next candidate...");
-                    } else {
-                        $lastException = $e;
-                        Log::warning("ProcessDebridDownloadJob proxy " . ($proxy ?: 'Direct') . " download failed: " . $e->getMessage() . ". Retrying with next proxy...");
+                    $lastException = $e;
+                    Log::warning("ProcessDebridDownloadJob proxy " . ($proxy ?: 'Direct') . " download failed: " . $e->getMessage() . ". Retrying with next proxy...");
 
-                        // If Real-Debrid rejected link due to IP change or expiration, re-unrestrict once
-                        if ($e instanceof \GuzzleHttp\Exception\ClientException && in_array($e->getResponse()?->getStatusCode(), [401, 403, 404, 410, 416])) {
-                            try {
-                                $useRemote = $download->use_remote ?? config('services.realdebrid.use_remote', true);
-                                $refreshResult = $rdService->unrestrictLink($download->original_link, null, $useRemote);
-                                if ($refreshResult['success'] && !empty($refreshResult['data']['download_link'])) {
-                                    $debridUrl = $refreshResult['data']['download_link'];
-                                    $download->update(['debrid_link' => $debridUrl]);
-                                }
-                            } catch (\Throwable $re) {
-                                Log::debug("Failed to re-unrestrict on link error: " . $re->getMessage());
+                    // If Real-Debrid rejected link due to IP change or expiration, re-unrestrict once
+                    if ($e instanceof \GuzzleHttp\Exception\ClientException && in_array($e->getResponse()?->getStatusCode(), [401, 403, 404, 410, 416])) {
+                        try {
+                            $useRemote = $download->use_remote ?? config('services.realdebrid.use_remote', true);
+                            $refreshResult = $rdService->unrestrictLink($download->original_link, null, $useRemote);
+                            if ($refreshResult['success'] && !empty($refreshResult['data']['download_link'])) {
+                                $debridUrl = $refreshResult['data']['download_link'];
+                                $download->update(['debrid_link' => $debridUrl]);
                             }
+                        } catch (\Throwable $re) {
+                            Log::debug("Failed to re-unrestrict on link error: " . $re->getMessage());
                         }
                     }
 

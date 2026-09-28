@@ -137,20 +137,14 @@ class DebridProxyTest extends TestCase
         $this->assertEquals(substr($content, 0, 10), $chunkResponse->streamedContent());
     }
 
-    public function test_proxy_speed_service_normalizes_and_handles_proxies()
+    public function test_proxy_list_is_parsed_from_proxies_file()
     {
-        $speedService = new \App\Services\ProxySpeedService();
+        $proxies = \App\Services\RealDebridService::getProxyList();
+        $this->assertIsArray($proxies);
 
-        $this->assertEquals('http://1.2.3.4:8080', $speedService->normalizeProxy('1.2.3.4:8080'));
-        $this->assertEquals('http://1.2.3.4:8080', $speedService->normalizeProxy('http://1.2.3.4:8080'));
-        $this->assertEquals('socks5://1.2.3.4:1080', $speedService->normalizeProxy('socks5://1.2.3.4:1080'));
-        $this->assertNull($speedService->normalizeProxy(''));
-        $this->assertNull($speedService->normalizeProxy(null));
-
-        // When given empty proxy list, returns direct fallback
-        $result = $speedService->findFastProxy('https://example.com/testfile', []);
-        $this->assertNull($result['proxy']);
-        $this->assertTrue($result['qualified']);
+        $candidates = \App\Services\RealDebridService::getCandidateProxiesForApi();
+        $this->assertIsArray($candidates);
+        $this->assertNotEmpty($candidates);
     }
 
     public function test_cancelling_download_sets_cache_flag_and_cleans_up()
