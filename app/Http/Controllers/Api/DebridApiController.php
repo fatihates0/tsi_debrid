@@ -79,7 +79,9 @@ class DebridApiController extends Controller
             'link_hash' => $linkHash,
             'status' => 'pending',
             'user_ip' => $request->ip(),
-            'use_remote' => $request->boolean('remote', $request->boolean('use_remote', true)),
+            'use_remote' => ($request->has('remote') || $request->has('use_remote'))
+                ? ($request->boolean('remote') || $request->boolean('use_remote'))
+                : config('services.realdebrid.use_remote', true),
         ]);
 
         ProcessDebridDownloadJob::dispatch($download);
@@ -221,7 +223,7 @@ class DebridApiController extends Controller
 
         // Case 1: Already cached on local server -> Serve/Redirect to local file
         if ($existing && $existing->status === 'completed' && !empty($existing->storage_path)) {
-            $fullPath = storage_path('app/public/' . $existing->storage_path);
+            $fullPath = \Illuminate\Support\Facades\Storage::disk('public')->path($existing->storage_path);
             if (file_exists($fullPath)) {
                 $existing->increment('download_count');
                 return redirect()->to(route('downloads.file', ['uuid' => $existing->uuid]));

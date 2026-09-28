@@ -83,4 +83,33 @@ class DebridProxyTest extends TestCase
         // Database should still only have 1 record
         $this->assertEquals(1, DebridDownload::where('link_hash', $linkHash)->count());
     }
+
+    public function test_it_serves_download_file_with_correct_content_length_headers()
+    {
+        Storage::fake('public');
+
+        $storagePath = 'downloads/test-uuid-5678/sample.rar';
+        $content = 'Sample RAR binary content for size check';
+        Storage::disk('public')->put($storagePath, $content);
+        $expectedSize = strlen($content);
+
+        $download = DebridDownload::create([
+            'uuid' => 'test-uuid-5678',
+            'original_link' => 'https://example.com/file',
+            'link_hash' => md5('https://example.com/file'),
+            'filename' => 'sample.rar',
+            'filesize' => $expectedSize,
+            'downloaded_bytes' => $expectedSize,
+            'status' => 'completed',
+            'storage_path' => $storagePath,
+            'mime_type' => 'application/x-rar-compressed',
+        ]);
+
+        $response = $this->get('/dl/' . $download->uuid);
+
+        $response->assertStatus(200);
+        $response->assertHeader('Content-Length', (string) $expectedSize);
+        $response->assertHeader('Accept-Ranges', 'bytes');
+        $response->assertHeader('X-Accel-Buffering', 'no');
+    }
 }

@@ -89,7 +89,7 @@ class DebridDownloadController extends Controller
             'link_hash' => $linkHash,
             'status' => 'pending',
             'user_ip' => $request->ip(),
-            'use_remote' => $request->boolean('use_remote', true),
+            'use_remote' => $request->has('use_remote') ? $request->boolean('use_remote') : config('services.realdebrid.use_remote', true),
         ]);
 
         // Dispatch job to queue or sync depending on config
@@ -142,7 +142,7 @@ class DebridDownloadController extends Controller
             abort(404, 'Dosya henüz hazır değil veya sunucuda bulunamadı.');
         }
 
-        $fullPath = storage_path('app/public/' . $download->storage_path);
+        $fullPath = Storage::disk('public')->path($download->storage_path);
 
         if (!file_exists($fullPath)) {
             abort(404, 'Fiziksel dosya disk üzerinde bulunamadı.');
@@ -151,10 +151,24 @@ class DebridDownloadController extends Controller
         // Increment download count tracker
         $download->increment('download_count');
 
-        return response()->download($fullPath, $download->filename, [
+        $fileSize = filesize($fullPath);
+        $filename = $download->filename ?: basename($fullPath);
+
+        // Turn off / flush output buffers to prevent PHP/Nginx chunked transfer encoding from stripping Content-Length
+        while (ob_get_level() > 0) {
+            @ob_end_clean();
+        }
+
+        $headers = [
             'Content-Type' => $download->mime_type ?: 'application/octet-stream',
+            'Content-Length' => (string) $fileSize,
             'Accept-Ranges' => 'bytes',
-        ]);
+            'X-Accel-Buffering' => 'no',
+            'Cache-Control' => 'private, no-transform, no-store, must-revalidate',
+            'Pragma' => 'no-cache',
+        ];
+
+        return response()->download($fullPath, $filename, $headers);
     }
 
     /**
