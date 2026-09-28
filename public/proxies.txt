@@ -1,0 +1,9 @@
+# Real-Debrid Proxy Listesi (Her satıra 1 adet proxy yazabilirsiniz)
+# .env dosyasında REAL_DEBRID_PROXY tanımlıysa öncelikli olarak o kullanılır.
+# .env boş bırakılırsa bu dosyadaki proxy'ler sırayla denenir (Failover / Hata durumunda otomatik sıradakine geçer).
+#
+# Örnek Kullanımlar:
+# http://185.100.20.10:8080
+# http://kullanici:sifre@185.100.20.10:8080
+# socks5://185.100.20.10:1080
+# socks5://kullanici:sifre@185.100.20.10:1080

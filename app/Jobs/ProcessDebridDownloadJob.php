@@ -79,49 +79,69 @@ class ProcessDebridDownloadJob implements ShouldQueue
             $lastUpdate = time();
             $downloadedSoFar = 0;
 
-            // Stream download using Guzzle sink with progress callback
-            $guzzleConfig = [
-                'verify' => false,
-                RequestOptions::TIMEOUT => 7200,
-                RequestOptions::CONNECT_TIMEOUT => 30,
-                'force_ip_resolve' => 'v4',
-            ];
-
-            $proxy = config('services.realdebrid.proxy');
-            if (!empty($proxy)) {
-                $guzzleConfig['proxy'] = $proxy;
+            $proxies = RealDebridService::getProxyList();
+            if (empty($proxies)) {
+                $proxies = [null]; // direct connection fallback
             }
 
-            $client = new GuzzleClient($guzzleConfig);
+            $downloadSuccess = false;
+            $lastException = null;
 
-            $response = $client->request('GET', $debridUrl, [
-                'sink' => $fullStoragePath,
-                'progress' => function ($downloadTotal, $downloadedBytes) use ($download, &$lastUpdate, &$downloadedSoFar) {
-                    $downloadedSoFar = $downloadedBytes;
-                    $now = time();
-                    // Throttle DB updates to once per second to avoid DB locks
-                    if ($now - $lastUpdate >= 1 || ($downloadTotal > 0 && $downloadedBytes >= $downloadTotal)) {
-                        $lastUpdate = $now;
-                        $updateData = ['downloaded_bytes' => $downloadedBytes];
-                        if ($downloadTotal > 0 && $download->filesize <= 0) {
-                            $updateData['filesize'] = $downloadTotal;
-                        }
-                        $download->update($updateData);
+            foreach ($proxies as $proxy) {
+                try {
+                    $guzzleConfig = [
+                        'verify' => false,
+                        RequestOptions::TIMEOUT => 7200,
+                        RequestOptions::CONNECT_TIMEOUT => 30,
+                        'force_ip_resolve' => 'v4',
+                    ];
+
+                    if ($proxy) {
+                        $guzzleConfig['proxy'] = $proxy;
                     }
-                },
-            ]);
 
-            if ($response->getStatusCode() === 200 && file_exists($fullStoragePath)) {
-                $actualFileSize = filesize($fullStoragePath);
-                $download->update([
-                    'status' => 'completed',
-                    'filesize' => $actualFileSize ?: $totalSize,
-                    'downloaded_bytes' => $actualFileSize ?: $totalSize,
-                    'storage_path' => $relativeFilePath,
-                    'filename' => $safeFilename,
-                ]);
-            } else {
-                throw new Exception('Sunucu indirme isteğine ' . $response->getStatusCode() . ' yanıtı verdi.');
+                    $client = new GuzzleClient($guzzleConfig);
+
+                    $response = $client->request('GET', $debridUrl, [
+                        'sink' => $fullStoragePath,
+                        'progress' => function ($downloadTotal, $downloadedBytes) use ($download, &$lastUpdate, &$downloadedSoFar) {
+                            $downloadedSoFar = $downloadedBytes;
+                            $now = time();
+                            // Throttle DB updates to once per second to avoid DB locks
+                            if ($now - $lastUpdate >= 1 || ($downloadTotal > 0 && $downloadedBytes >= $downloadTotal)) {
+                                $lastUpdate = $now;
+                                $updateData = ['downloaded_bytes' => $downloadedBytes];
+                                if ($downloadTotal > 0 && $download->filesize <= 0) {
+                                    $updateData['filesize'] = $downloadTotal;
+                                }
+                                $download->update($updateData);
+                            }
+                        },
+                    ]);
+
+                    if ($response->getStatusCode() === 200 && file_exists($fullStoragePath)) {
+                        $actualFileSize = filesize($fullStoragePath);
+                        $download->update([
+                            'status' => 'completed',
+                            'filesize' => $actualFileSize ?: $totalSize,
+                            'downloaded_bytes' => $actualFileSize ?: $totalSize,
+                            'storage_path' => $relativeFilePath,
+                            'filename' => $safeFilename,
+                        ]);
+                        $downloadSuccess = true;
+                        break;
+                    }
+                } catch (Exception $e) {
+                    $lastException = $e;
+                    Log::warning("ProcessDebridDownloadJob proxy " . ($proxy ?: 'Direct') . " download failed: " . $e->getMessage() . ". Retrying with next proxy...");
+                    if (file_exists($fullStoragePath)) {
+                        @unlink($fullStoragePath);
+                    }
+                }
+            }
+
+            if (!$downloadSuccess) {
+                throw $lastException ?: new Exception('İndirme tüm proxy kanallarında başarısız oldu.');
             }
 
         } catch (Exception $e) {

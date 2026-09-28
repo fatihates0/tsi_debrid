@@ -32,20 +32,35 @@ class RealDebridService
     }
 
     /**
-     * Get default HTTP client options (IPv4 force & Proxy support)
+     * Get list of configured proxies.
+     * Priority:
+     * 1. .env (REAL_DEBRID_PROXY) if set
+     * 2. public/proxies.txt file (1 proxy per line)
+     * 3. Empty list (direct connection)
      */
-    protected function getHttpOptions(): array
+    public static function getProxyList(): array
     {
-        $options = [
-            'force_ip_resolve' => 'v4',
-        ];
-
-        $proxy = config('services.realdebrid.proxy');
-        if (!empty($proxy)) {
-            $options['proxy'] = $proxy;
+        $envProxy = config('services.realdebrid.proxy');
+        if (!empty($envProxy)) {
+            return [trim($envProxy)];
         }
 
-        return $options;
+        $txtPath = public_path('proxies.txt');
+        if (file_exists($txtPath)) {
+            $lines = file($txtPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            $proxies = [];
+            foreach ($lines as $line) {
+                $trimmed = trim($line);
+                if (!empty($trimmed) && !str_starts_with($trimmed, '#')) {
+                    $proxies[] = $trimmed;
+                }
+            }
+            if (!empty($proxies)) {
+                return $proxies;
+            }
+        }
+
+        return [];
     }
 
     /**
@@ -60,38 +75,62 @@ class RealDebridService
             ];
         }
 
-        try {
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->apiToken,
-            ])->withOptions($this->getHttpOptions())->timeout(10)->get($this->baseUrl . 'user');
-
-            if ($response->successful()) {
-                $data = $response->json();
-                return [
-                    'success' => true,
-                    'data' => [
-                        'id' => $data['id'] ?? null,
-                        'username' => $data['username'] ?? 'Bilinmiyor',
-                        'email' => $data['email'] ?? '',
-                        'points' => $data['points'] ?? 0,
-                        'type' => $data['type'] ?? 'free', // 'premium' or 'free'
-                        'premium_seconds' => $data['premium'] ?? 0,
-                        'expiration' => $data['expiration'] ?? null,
-                    ],
-                ];
-            }
-
-            return [
-                'success' => false,
-                'message' => 'Real-Debrid API Hatası (' . $response->status() . '): ' . ($response->json('error') ?? $response->body()),
-            ];
-        } catch (Exception $e) {
-            Log::error('RealDebrid getUserInfo Error: ' . $e->getMessage());
-            return [
-                'success' => false,
-                'message' => 'Bağlantı hatası: ' . $e->getMessage(),
-            ];
+        $proxies = self::getProxyList();
+        if (empty($proxies)) {
+            $proxies = [null]; // direct connection fallback
         }
+
+        $lastError = 'Bağlantı kurulamadı.';
+
+        foreach ($proxies as $proxy) {
+            try {
+                $options = ['force_ip_resolve' => 'v4'];
+                if ($proxy) {
+                    $options['proxy'] = $proxy;
+                }
+
+                $response = Http::withHeaders([
+                    'Authorization' => 'Bearer ' . $this->apiToken,
+                ])->withOptions($options)->timeout(10)->get($this->baseUrl . 'user');
+
+                if ($response->successful()) {
+                    $data = $response->json();
+                    return [
+                        'success' => true,
+                        'data' => [
+                            'id' => $data['id'] ?? null,
+                            'username' => $data['username'] ?? 'Bilinmiyor',
+                            'email' => $data['email'] ?? '',
+                            'points' => $data['points'] ?? 0,
+                            'type' => $data['type'] ?? 'free', // 'premium' or 'free'
+                            'premium_seconds' => $data['premium'] ?? 0,
+                            'expiration' => $data['expiration'] ?? null,
+                        ],
+                    ];
+                }
+
+                $errorMsg = $response->json('error') ?? $response->body();
+                $lastError = 'Real-Debrid API Hatası (' . $response->status() . '): ' . $errorMsg;
+
+                if ($proxy && (in_array($response->status(), [402, 407, 502, 503, 504]) || str_contains(strtolower((string) $errorMsg), 'proxy'))) {
+                    Log::warning("Proxy {$proxy} getUserInfo failed ({$response->status()}). Retrying with next proxy...");
+                    continue;
+                }
+
+                return [
+                    'success' => false,
+                    'message' => $lastError,
+                ];
+            } catch (Exception $e) {
+                $lastError = 'Bağlantı hatası: ' . $e->getMessage();
+                Log::warning("Proxy " . ($proxy ?: 'Direct') . " getUserInfo exception: " . $e->getMessage() . ". Retrying with next proxy...");
+            }
+        }
+
+        return [
+            'success' => false,
+            'message' => $lastError,
+        ];
     }
 
     /**
@@ -110,55 +149,77 @@ class RealDebridService
             ];
         }
 
-        try {
-            $payload = [
-                'link' => trim($link),
-                'remote' => $remote ? 1 : 0,
-            ];
-
-            if ($password) {
-                $payload['password'] = $password;
-            }
-
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->apiToken,
-            ])->withOptions($this->getHttpOptions())->asForm()->timeout(15)->post($this->baseUrl . 'unrestrict/link', $payload);
-
-            if ($response->successful()) {
-                $data = $response->json();
-                return [
-                    'success' => true,
-                    'data' => [
-                        'id' => $data['id'] ?? null,
-                        'filename' => $data['filename'] ?? 'downloaded_file',
-                        'mime_type' => $data['mimeType'] ?? null,
-                        'filesize' => $data['filesize'] ?? 0,
-                        'original_link' => $data['link'] ?? $link,
-                        'host' => $data['host'] ?? null,
-                        'download_link' => $data['download'] ?? null,
-                        'streamable' => (bool) ($data['streamable'] ?? 0),
-                    ],
-                ];
-            }
-
-            $errorMsg = $response->json('error') ?? $response->body();
-
-            // Automatic fallback if Remote Traffic (remote=1) quota is exhausted
-            if ($remote && str_contains(strtolower((string) $errorMsg), 'traffic_exhausted')) {
-                Log::info("RealDebrid Remote Traffic exhausted for link {$link}, automatically falling back to standard unrestrict (remote=0)");
-                return $this->unrestrictLink($link, $password, false);
-            }
-
-            return [
-                'success' => false,
-                'message' => 'Real-Debrid Unrestrict Hatası (' . $response->status() . '): ' . $errorMsg,
-            ];
-        } catch (Exception $e) {
-            Log::error('RealDebrid unrestrictLink Error: ' . $e->getMessage());
-            return [
-                'success' => false,
-                'message' => 'İstek hatası: ' . $e->getMessage(),
-            ];
+        $proxies = self::getProxyList();
+        if (empty($proxies)) {
+            $proxies = [null]; // direct connection fallback
         }
+
+        $lastError = 'Bağlantı kurulamadı.';
+
+        foreach ($proxies as $proxy) {
+            try {
+                $options = ['force_ip_resolve' => 'v4'];
+                if ($proxy) {
+                    $options['proxy'] = $proxy;
+                }
+
+                $payload = [
+                    'link' => trim($link),
+                    'remote' => $remote ? 1 : 0,
+                ];
+
+                if ($password) {
+                    $payload['password'] = $password;
+                }
+
+                $response = Http::withHeaders([
+                    'Authorization' => 'Bearer ' . $this->apiToken,
+                ])->withOptions($options)->asForm()->timeout(15)->post($this->baseUrl . 'unrestrict/link', $payload);
+
+                if ($response->successful()) {
+                    $data = $response->json();
+                    return [
+                        'success' => true,
+                        'data' => [
+                            'id' => $data['id'] ?? null,
+                            'filename' => $data['filename'] ?? 'downloaded_file',
+                            'mime_type' => $data['mimeType'] ?? null,
+                            'filesize' => $data['filesize'] ?? 0,
+                            'original_link' => $data['link'] ?? $link,
+                            'host' => $data['host'] ?? null,
+                            'download_link' => $data['download'] ?? null,
+                            'streamable' => (bool) ($data['streamable'] ?? 0),
+                        ],
+                    ];
+                }
+
+                $errorMsg = $response->json('error') ?? $response->body();
+                $lastError = 'Real-Debrid Unrestrict Hatası (' . $response->status() . '): ' . $errorMsg;
+
+                // Automatic fallback if Remote Traffic (remote=1) quota is exhausted
+                if ($remote && str_contains(strtolower((string) $errorMsg), 'traffic_exhausted')) {
+                    Log::info("RealDebrid Remote Traffic exhausted for link {$link}, automatically falling back to standard unrestrict (remote=0)");
+                    return $this->unrestrictLink($link, $password, false);
+                }
+
+                if ($proxy && (in_array($response->status(), [402, 407, 502, 503, 504]) || str_contains(strtolower((string) $errorMsg), 'proxy'))) {
+                    Log::warning("Proxy {$proxy} unrestrictLink failed ({$response->status()}). Retrying with next proxy...");
+                    continue;
+                }
+
+                return [
+                    'success' => false,
+                    'message' => $lastError,
+                ];
+            } catch (Exception $e) {
+                $lastError = 'İstek hatası: ' . $e->getMessage();
+                Log::warning("Proxy " . ($proxy ?: 'Direct') . " unrestrictLink exception: " . $e->getMessage() . ". Retrying with next proxy...");
+            }
+        }
+
+        return [
+            'success' => false,
+            'message' => $lastError,
+        ];
     }
 }
