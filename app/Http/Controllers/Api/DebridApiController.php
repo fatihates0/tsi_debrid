@@ -155,22 +155,64 @@ class DebridApiController extends Controller
      */
     public function directDownload(Request $request, ?string $link = null)
     {
-        $originalLink = $link ?: $request->query('link') ?: $request->query('url');
+        $rawInput = $link ?: $request->query('link') ?: $request->query('url') ?: $request->query('b64');
 
-        if (empty($originalLink)) {
+        if (empty($rawInput)) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Lütfen geçerli bir indirme linki girin. Örnek: /api/indir/https://mega.nz/file/... veya ?link=https://mega.nz/...',
+                'message' => 'Lütfen geçerli bir indirme linki veya ID girin. Örnek: /api/indir/15 veya /api/indir/file/ID/KEY',
             ], 400);
         }
 
-        // Repair potential double slash stripping by web servers/proxies (e.g., http:/mega.nz -> http://mega.nz)
-        $originalLink = preg_replace('#^(https?):/+#i', '$1://', trim($originalLink));
+        $rawInput = trim($rawInput);
+        $originalLink = null;
 
-        if (!filter_var($originalLink, FILTER_VALIDATE_URL)) {
+        // 1. Short ID or UUID lookup (e.g. /api/indir/15 or /api/indir/uuid)
+        if (is_numeric($rawInput) || Str::isUuid($rawInput)) {
+            $record = DebridDownload::where('id', $rawInput)->orWhere('uuid', $rawInput)->first();
+            if ($record) {
+                $originalLink = $record->original_link;
+            }
+        }
+
+        // 2. Mega Slash Auto-Conversion (Replaces / with # for Mega links to bypass IDM # stripping)
+        if (empty($originalLink)) {
+            // New Mega file format: file/ID/KEY or mega.nz/file/ID/KEY
+            if (preg_match('#(?:mega\.nz/)?file/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)#i', $rawInput, $matches)) {
+                $originalLink = "https://mega.nz/file/{$matches[1]}#{$matches[2]}";
+            }
+            // Mega folder format: folder/ID/KEY
+            elseif (preg_match('#(?:mega\.nz/)?folder/([a-zA-Z0-9_-]+)/([a-zA-Z0-9_-]+)#i', $rawInput, $matches)) {
+                $originalLink = "https://mega.nz/folder/{$matches[1]}#{$matches[2]}";
+            }
+            // Old Mega format: !ID!KEY or mega.co.nz/!ID!KEY
+            elseif (preg_match('#(?:mega\.co\.nz/)?!?([a-zA-Z0-9_-]+)!([a-zA-Z0-9_-]+)#i', $rawInput, $matches)) {
+                $originalLink = "https://mega.co.nz/#!{$matches[1]}!{$matches[2]}";
+            }
+        }
+
+        // 3. Base64 decode check
+        if (empty($originalLink)) {
+            $decoded = @base64_decode($rawInput, true);
+            if ($decoded !== false && filter_var($decoded, FILTER_VALIDATE_URL)) {
+                $originalLink = $decoded;
+            }
+        }
+
+        // 4. Raw URL / URL Decode / Standard URL Repair (Rapidgator, Turbobit, 1fichier etc.)
+        if (empty($originalLink)) {
+            $urlDecoded = rawurldecode($rawInput);
+            if (filter_var($urlDecoded, FILTER_VALIDATE_URL)) {
+                $originalLink = $urlDecoded;
+            } else {
+                $originalLink = preg_replace('#^(https?):/+#i', '$1://', $rawInput);
+            }
+        }
+
+        if (empty($originalLink) || !filter_var($originalLink, FILTER_VALIDATE_URL)) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Geçersiz URL formatı.',
+                'message' => 'Geçersiz indirme adresi veya ID.',
             ], 422);
         }
 

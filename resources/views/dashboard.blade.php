@@ -360,6 +360,13 @@
                                                 </a>
                                             </template>
 
+                                            <!-- COPY IDM LINK BUTTON -->
+                                            <button @click="copyIdmLink(item)" 
+                                                    class="p-1.5 rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-300 text-xs transition" 
+                                                    title="IDM Uyumlu Kısa Bağlantıyı Kopyala">
+                                                <i class="fa-solid fa-bolt"></i>
+                                            </button>
+
                                             <!-- COPY PROXY LINK BUTTON -->
                                             <template x-if="item.status === 'completed'">
                                                 <button @click="copyLink(window.location.origin + '/dl/' + item.uuid)" 
@@ -501,6 +508,13 @@
                 copyLink(text) {
                     navigator.clipboard.writeText(text);
                     alert('⚡ Proxy İndirme Linki Panoya Kopyalandı:\n' + text);
+                },
+
+                copyIdmLink(item) {
+                    if (!item) return;
+                    const idmUrl = window.location.origin + '/api/indir/' + (item.id || item.uuid);
+                    navigator.clipboard.writeText(idmUrl);
+                    alert('⚡ IDM Uyumlu Bağlantı Kopyalandı!\nIDM\'ye doğrudan yapıştırabilirsiniz:\n\n' + idmUrl);
                 },
 
                 getProgress(item) {
