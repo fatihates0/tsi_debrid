@@ -125,6 +125,13 @@ class RealDebridService
             }
 
             $errorMsg = $response->json('error') ?? $response->body();
+
+            // Automatic fallback if Remote Traffic (remote=1) quota is exhausted
+            if ($remote && str_contains(strtolower((string) $errorMsg), 'traffic_exhausted')) {
+                Log::info("RealDebrid Remote Traffic exhausted for link {$link}, automatically falling back to standard unrestrict (remote=0)");
+                return $this->unrestrictLink($link, $password, false);
+            }
+
             return [
                 'success' => false,
                 'message' => 'Real-Debrid Unrestrict Hatası (' . $response->status() . '): ' . $errorMsg,
