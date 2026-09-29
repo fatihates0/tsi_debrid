@@ -446,10 +446,6 @@
                                             <i class="fa-regular fa-file-lines text-indigo-400"></i>
                                             <span x-text="item.filename || 'Dönüştürülüyor...'"></span>
                                         </div>
-                                        <div class="text-xs text-slate-400 truncate mt-1" :title="item.original_link">
-                                            <span class="text-slate-500 font-mono">Link:</span> <span
-                                                x-text="item.original_link"></span>
-                                        </div>
                                     </td>
 
                                     <!-- SUPERUSER ONLY: USER & IP COLUMNS -->
@@ -552,6 +548,13 @@
                                                     <i class="fa-solid fa-copy"></i>
                                                 </button>
                                             </template>
+
+                                            <!-- COPY ORIGINAL LINK BUTTON -->
+                                            <button @click="copyOriginalLink(item.original_link)"
+                                                class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition"
+                                                title="Orijinal İndirme Bağlantısını Kopyala">
+                                                <i class="fa-solid fa-link"></i>
+                                            </button>
 
                                             <!-- DELETE / CANCEL BUTTON -->
                                             <button @click="deleteItem(item.uuid)"
@@ -828,6 +831,12 @@
                     const idmUrl = window.location.origin + '/api/indir/' + (item.id || item.uuid);
                     navigator.clipboard.writeText(idmUrl);
                     alert('⚡ IDM Uyumlu Bağlantı Kopyalandı!\nIDM\'ye doğrudan yapıştırabilirsiniz:\n\n' + idmUrl);
+                },
+
+                copyOriginalLink(link) {
+                    if (!link) return;
+                    navigator.clipboard.writeText(link);
+                    alert('🔗 Orijinal Bağlantı Panoya Kopyalandı:\n' + link);
                 },
 
                 getProgress(item) {
