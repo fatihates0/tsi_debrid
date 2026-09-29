@@ -93,35 +93,56 @@
                 <!-- REAL DEBRID ACCOUNT STATUS BADGE -->
                 <div class="flex items-center gap-3">
                     <template x-if="rdInfo.loading">
-                        <div class="flex items-center gap-2 text-xs text-slate-400 glass-card px-3 py-1.5 rounded-lg">
-                            <i class="fa-solid fa-spinner animate-spin text-indigo-400"></i> RD Hesabı Sorgulanıyor...
+                        <div class="flex flex-col items-end gap-1">
+                            <div class="flex items-center gap-2 text-xs text-slate-400 glass-card px-3 py-1.5 rounded-xl border border-slate-800">
+                                <i class="fa-solid fa-spinner animate-spin text-indigo-400"></i> RD Hesabı Sorgulanıyor...
+                            </div>
+                            <div class="text-[11px] font-mono text-slate-400 flex items-center gap-1.5 pr-1">
+                                <i class="fa-solid fa-network-wired text-[10px] text-indigo-400"></i>
+                                <span>Denenen IP:</span>
+                                <span class="font-bold text-slate-300" x-text="rdInfo.active_proxy || 'Doğrudan'"></span>
+                            </div>
                         </div>
                     </template>
 
                     <template x-if="!rdInfo.loading && rdInfo.success">
-                        <div
-                            class="flex items-center gap-3 glass-card px-3.5 py-1.5 rounded-xl border border-indigo-500/20">
-                            <div class="flex items-center gap-2">
-                                <span class="relative flex h-2.5 w-2.5">
-                                    <span
-                                        class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                    <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                                </span>
-                                <span class="text-xs font-semibold text-slate-200" x-text="rdInfo.data.username"></span>
+                        <div class="flex flex-col items-end gap-1">
+                            <div
+                                class="flex items-center gap-3 glass-card px-3.5 py-1.5 rounded-xl border border-indigo-500/20">
+                                <div class="flex items-center gap-2">
+                                    <span class="relative flex h-2.5 w-2.5">
+                                        <span
+                                            class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                                    </span>
+                                    <span class="text-xs font-semibold text-slate-200" x-text="rdInfo.data.username"></span>
+                                </div>
+                                <span class="h-3 w-px bg-slate-700"></span>
+                                <div class="text-xs text-indigo-300 font-medium flex items-center gap-1.5">
+                                    <i class="fa-solid fa-crown text-amber-400"></i>
+                                    <span x-text="rdInfo.data.type === 'premium' ? 'Premium Aktif' : 'Free'"></span>
+                                </div>
                             </div>
-                            <span class="h-3 w-px bg-slate-700"></span>
-                            <div class="text-xs text-indigo-300 font-medium flex items-center gap-1.5">
-                                <i class="fa-solid fa-crown text-amber-400"></i>
-                                <span x-text="rdInfo.data.type === 'premium' ? 'Premium Aktif' : 'Free'"></span>
+                            <div class="text-[11px] font-mono text-indigo-300/90 flex items-center gap-1.5 pr-1">
+                                <i class="fa-solid fa-network-wired text-[10px] text-indigo-400"></i>
+                                <span>Aktif IP:</span>
+                                <span class="font-bold text-white" x-text="rdInfo.active_proxy || rdInfo.data.active_proxy || 'Doğrudan'"></span>
                             </div>
                         </div>
                     </template>
 
                     <template x-if="!rdInfo.loading && !rdInfo.success">
-                        <div class="flex items-center gap-2 text-xs text-amber-400 glass-card px-3 py-1.5 rounded-xl border border-amber-500/30"
-                            :title="rdInfo.message">
-                            <i class="fa-solid fa-circle-exclamation"></i>
-                            <span x-text="rdInfo.message || 'RD Bağlantı Hatası (.env)'"></span>
+                        <div class="flex flex-col items-end gap-1">
+                            <div class="flex items-center gap-2 text-xs text-amber-400 glass-card px-3 py-1.5 rounded-xl border border-amber-500/30"
+                                :title="rdInfo.message">
+                                <i class="fa-solid fa-circle-exclamation"></i>
+                                <span x-text="rdInfo.message || 'RD Bağlantı Hatası (.env)'"></span>
+                            </div>
+                            <div class="text-[11px] font-mono text-amber-400/90 flex items-center gap-1.5 pr-1">
+                                <i class="fa-solid fa-network-wired text-[10px] text-amber-400"></i>
+                                <span>Denenen IP:</span>
+                                <span class="font-bold text-amber-200" x-text="rdInfo.active_proxy || 'Doğrudan'"></span>
+                            </div>
                         </div>
                     </template>
                 </div>
@@ -437,7 +458,12 @@
                 isSubmitting: false,
                 downloadsList: [],
                 isRefreshing: false,
-                rdInfo: { loading: true, success: false, data: {} },
+                rdInfo: {
+                    loading: true,
+                    success: false,
+                    active_proxy: '{{ \App\Services\RealDebridService::getDisplayProxy(\App\Services\RealDebridService::getCandidateProxiesForApi()[0] ?? null) }}',
+                    data: {}
+                },
 
                 initPolling() {
                     this.fetchRdStatus();
@@ -452,11 +478,18 @@
                         const res = await fetch('/rd-status');
                         const json = await res.json();
                         this.rdInfo.loading = false;
-                        if (json.success) {
+                        if (json && json.active_proxy) {
+                            this.rdInfo.active_proxy = json.active_proxy;
+                        }
+                        if (json && json.success) {
                             this.rdInfo.success = true;
                             this.rdInfo.data = json.data;
+                            if (json.data && json.data.active_proxy) {
+                                this.rdInfo.active_proxy = json.data.active_proxy;
+                            }
                         } else {
                             this.rdInfo.success = false;
+                            this.rdInfo.message = json ? json.message : 'RD Bağlantı Hatası (.env)';
                         }
                     } catch (e) {
                         this.rdInfo.loading = false;

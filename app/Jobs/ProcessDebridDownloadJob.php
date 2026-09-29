@@ -4,6 +4,10 @@ namespace App\Jobs;
 
 use App\Models\DebridDownload;
 use App\Services\RealDebridService;
+use Exception;
+use GuzzleHttp\Client as GuzzleClient;
+use GuzzleHttp\Exception\ClientException;
+use GuzzleHttp\RequestOptions;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -11,15 +15,13 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Exception;
-use GuzzleHttp\Client as GuzzleClient;
-use GuzzleHttp\RequestOptions;
 
 class ProcessDebridDownloadJob implements ShouldQueue
 {
-    use Queueable, InteractsWithQueue, SerializesModels;
+    use InteractsWithQueue, Queueable, SerializesModels;
 
     public int $timeout = 7200; // 2 hours max per job
+
     public int $tries = 1;
 
     protected DebridDownload $download;
@@ -40,12 +42,13 @@ class ProcessDebridDownloadJob implements ShouldQueue
         if (Cache::has("cancel_download_{$downloadUuid}")) {
             Log::info("ProcessDebridDownloadJob: Cancelled before starting (UUID: {$downloadUuid})");
             Cache::forget("cancel_download_{$downloadUuid}");
+
             return;
         }
 
         $download = $this->download->fresh();
 
-        if (!$download || $download->status === 'cancelled') {
+        if (! $download || $download->status === 'cancelled') {
             return;
         }
 
@@ -56,11 +59,12 @@ class ProcessDebridDownloadJob implements ShouldQueue
                 $useRemote = $download->use_remote ?? config('services.realdebrid.use_remote', true);
                 $unrestrictResult = $rdService->unrestrictLink($download->original_link, null, $useRemote);
 
-                if (!$unrestrictResult['success']) {
+                if (! $unrestrictResult['success']) {
                     $download->update([
                         'status' => 'failed',
                         'error_message' => $unrestrictResult['message'] ?? 'Link dönüştürülemedi.',
                     ]);
+
                     return;
                 }
 
@@ -68,7 +72,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
                 $download->update([
                     'debrid_id' => $data['id'] ?? null,
                     'debrid_link' => $data['download_link'],
-                    'filename' => $data['filename'] ?? 'file_' . $download->uuid,
+                    'filename' => $data['filename'] ?? 'file_'.$download->uuid,
                     'filesize' => $data['filesize'] ?? 0,
                     'mime_type' => $data['mime_type'] ?? null,
                 ]);
@@ -77,15 +81,16 @@ class ProcessDebridDownloadJob implements ShouldQueue
             if (Cache::has("cancel_download_{$downloadUuid}")) {
                 Log::info("ProcessDebridDownloadJob: Cancelled after unrestricting (UUID: {$downloadUuid})");
                 Cache::forget("cancel_download_{$downloadUuid}");
+
                 return;
             }
 
             // Step 2: Download file to local storage
             $download->update(['status' => 'downloading']);
 
-            $safeFilename = sanitize_filename($download->filename ?: 'file_' . $download->uuid);
-            $relativeDir = 'downloads/' . $download->uuid;
-            $relativeFilePath = $relativeDir . '/' . $safeFilename;
+            $safeFilename = sanitize_filename($download->filename ?: 'file_'.$download->uuid);
+            $relativeDir = 'downloads/'.$download->uuid;
+            $relativeFilePath = $relativeDir.'/'.$safeFilename;
 
             // Ensure storage directory exists
             Storage::disk('public')->makeDirectory($relativeDir);
@@ -102,19 +107,19 @@ class ProcessDebridDownloadJob implements ShouldQueue
 
             // Proxies are taken directly in sequential order from proxies.txt
             $orderedProxies = [];
-            if (!empty($proxies)) {
+            if (! empty($proxies)) {
                 // If a proxy recently succeeded, prioritize it
                 $workingProxy = Cache::get('last_working_rd_proxy');
                 if ($workingProxy && in_array($workingProxy, $proxies, true)) {
                     $orderedProxies[] = $workingProxy;
                 }
                 foreach ($proxies as $p) {
-                    if (!in_array($p, $orderedProxies, true)) {
+                    if (! in_array($p, $orderedProxies, true)) {
                         $orderedProxies[] = $p;
                     }
                 }
                 // Fallback to direct connection only if direct server IP is not blocked
-                if (!Cache::has('rd_direct_ip_blocked')) {
+                if (! Cache::has('rd_direct_ip_blocked')) {
                     $orderedProxies[] = null;
                 }
             } else {
@@ -134,6 +139,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
                         Storage::disk('public')->deleteDirectory($relativeDir);
                     }
                     Cache::forget("cancel_download_{$downloadUuid}");
+
                     return;
                 }
 
@@ -141,7 +147,8 @@ class ProcessDebridDownloadJob implements ShouldQueue
                     $guzzleConfig = [
                         'verify' => false,
                         RequestOptions::TIMEOUT => 7200,
-                        RequestOptions::CONNECT_TIMEOUT => $proxy ? 5.0 : 15.0,
+                        RequestOptions::READ_TIMEOUT => 7200,
+                        RequestOptions::CONNECT_TIMEOUT => $proxy ? 10.0 : 15.0,
                         'force_ip_resolve' => 'v4',
                     ];
 
@@ -151,14 +158,13 @@ class ProcessDebridDownloadJob implements ShouldQueue
 
                     $client = new GuzzleClient($guzzleConfig);
 
-                    Log::info("ProcessDebridDownloadJob: Attempting download with proxy " . ($proxy ?: 'Direct') . " (UUID: {$downloadUuid})");
+                    Log::info('ProcessDebridDownloadJob: Attempting download with proxy '.($proxy ?: 'Direct')." (UUID: {$downloadUuid})");
 
                     $response = $client->request('GET', $debridUrl, [
                         'sink' => $fullStoragePath,
                         'progress' => function ($downloadTotal, $downloadedBytes) use (
                             $download,
                             $downloadUuid,
-                            $proxy,
                             &$lastUpdate,
                             &$downloadedSoFar
                         ) {
@@ -174,7 +180,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
                             if ($now - $lastUpdate >= 1 || ($downloadTotal > 0 && $downloadedBytes >= $downloadTotal)) {
                                 $lastUpdate = $now;
                                 $fresh = $download->fresh();
-                                if (!$fresh || $fresh->status === 'cancelled') {
+                                if (! $fresh || $fresh->status === 'cancelled') {
                                     throw new \RuntimeException('DOWNLOAD_CANCELLED_BY_USER');
                                 }
                                 $updateData = ['downloaded_bytes' => $downloadedBytes];
@@ -200,7 +206,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
                             'filename' => $safeFilename,
                         ]);
                         $downloadSuccess = true;
-                        Log::info("ProcessDebridDownloadJob: Download completed successfully with proxy " . ($proxy ?: 'Direct') . " (UUID: {$downloadUuid})");
+                        Log::info('ProcessDebridDownloadJob: Download completed successfully with proxy '.($proxy ?: 'Direct')." (UUID: {$downloadUuid})");
                         break;
                     }
                 } catch (\Throwable $e) {
@@ -213,23 +219,24 @@ class ProcessDebridDownloadJob implements ShouldQueue
                             Storage::disk('public')->deleteDirectory($relativeDir);
                         }
                         Cache::forget("cancel_download_{$downloadUuid}");
+
                         return; // Stop job immediately without retrying proxies!
                     }
 
                     $lastException = $e;
-                    Log::warning("ProcessDebridDownloadJob proxy " . ($proxy ?: 'Direct') . " download failed: " . $e->getMessage() . ". Retrying with next proxy...");
+                    Log::warning('ProcessDebridDownloadJob proxy '.($proxy ?: 'Direct').' download failed: '.$e->getMessage().'. Retrying with next proxy...');
 
                     // If Real-Debrid rejected link due to IP change or expiration, re-unrestrict once
-                    if ($e instanceof \GuzzleHttp\Exception\ClientException && in_array($e->getResponse()?->getStatusCode(), [401, 403, 404, 410, 416])) {
+                    if ($e instanceof ClientException && in_array($e->getResponse()?->getStatusCode(), [401, 403, 404, 410, 416])) {
                         try {
                             $useRemote = $download->use_remote ?? config('services.realdebrid.use_remote', true);
                             $refreshResult = $rdService->unrestrictLink($download->original_link, null, $useRemote);
-                            if ($refreshResult['success'] && !empty($refreshResult['data']['download_link'])) {
+                            if ($refreshResult['success'] && ! empty($refreshResult['data']['download_link'])) {
                                 $debridUrl = $refreshResult['data']['download_link'];
                                 $download->update(['debrid_link' => $debridUrl]);
                             }
                         } catch (\Throwable $re) {
-                            Log::debug("Failed to re-unrestrict on link error: " . $re->getMessage());
+                            Log::debug('Failed to re-unrestrict on link error: '.$re->getMessage());
                         }
                     }
 
@@ -239,8 +246,8 @@ class ProcessDebridDownloadJob implements ShouldQueue
                 }
             }
 
-            if (!$downloadSuccess) {
-                throw $lastException ?: new \Exception('İndirme tüm proxy kanallarında ve doğrudan bağlantıda başarısız oldu.');
+            if (! $downloadSuccess) {
+                throw $lastException ?: new Exception('İndirme tüm proxy kanallarında ve doğrudan bağlantıda başarısız oldu.');
             }
 
         } catch (\Throwable $e) {
@@ -250,15 +257,16 @@ class ProcessDebridDownloadJob implements ShouldQueue
                     @unlink($fullStoragePath);
                 }
                 Cache::forget("cancel_download_{$downloadUuid}");
+
                 return;
             }
 
-            Log::error("ProcessDebridDownloadJob Error (UUID: {$downloadUuid}): " . $e->getMessage());
+            Log::error("ProcessDebridDownloadJob Error (UUID: {$downloadUuid}): ".$e->getMessage());
             $fresh = $download->fresh();
             if ($fresh && $fresh->status !== 'cancelled') {
                 $fresh->update([
                     'status' => 'failed',
-                    'error_message' => 'İndirme hatası: ' . $e->getMessage(),
+                    'error_message' => 'İndirme hatası: '.$e->getMessage(),
                 ]);
             }
         }
@@ -268,10 +276,11 @@ class ProcessDebridDownloadJob implements ShouldQueue
 /**
  * Helper function to sanitize filenames
  */
-if (!function_exists('sanitize_filename')) {
+if (! function_exists('sanitize_filename')) {
     function sanitize_filename(string $filename): string
     {
         $filename = preg_replace('/[^\w\-\.\ \(\)\[\]]/u', '_', $filename);
-        return trim($filename, '. ') ?: 'file_' . uniqid();
+
+        return trim($filename, '. ') ?: 'file_'.uniqid();
     }
 }
