@@ -160,6 +160,7 @@
                                 <div class="text-xs text-indigo-300 font-medium flex items-center gap-1.5">
                                     <i class="fa-solid fa-crown text-amber-400"></i>
                                     <span x-text="rdInfo.data.type === 'premium' ? 'Premium Aktif' : 'Free'"></span>
+                                    <i class="fa-solid fa-crown text-amber-400"></i>
                                 </div>
                             </div>
                             @if(!empty($isSuperUser) && $isSuperUser)
