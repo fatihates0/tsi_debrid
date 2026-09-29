@@ -6,7 +6,7 @@ use App\Models\DebridDownload;
 use App\Services\RealDebridService;
 use Exception;
 use GuzzleHttp\Client as GuzzleClient;
-use GuzzleHttp\Exception\ClientException;
+use GuzzleHttp\Exception\BadResponseException;
 use GuzzleHttp\RequestOptions;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -117,88 +117,15 @@ class ProcessDebridDownloadJob implements ShouldQueue
             $lastUpdate = time();
             $downloadedSoFar = 0;
 
-            $orderedProxies = RealDebridService::getCandidateProxiesForApi();
-
             $downloadSuccess = false;
             $lastException = null;
+            $maxAttempts = 2;
 
-            foreach ($orderedProxies as $proxyIndex => $proxy) {
-                if (Cache::has("cancel_download_{$downloadUuid}")) {
-                    if (file_exists($fullStoragePath)) {
-                        @unlink($fullStoragePath);
-                    }
-                    if (Storage::disk('public')->exists($relativeDir)) {
-                        Storage::disk('public')->deleteDirectory($relativeDir);
-                    }
-                    Cache::forget("cancel_download_{$downloadUuid}");
+            for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+                $orderedProxies = RealDebridService::getCandidateProxiesForApi();
 
-                    return;
-                }
-
-                try {
-                    $guzzleConfig = [
-                        'verify' => false,
-                        RequestOptions::TIMEOUT => 7200,
-                        RequestOptions::READ_TIMEOUT => 7200,
-                        RequestOptions::CONNECT_TIMEOUT => $proxy ? 10.0 : 15.0,
-                        'force_ip_resolve' => 'v4',
-                    ];
-
-                    if ($proxy) {
-                        $guzzleConfig['proxy'] = $proxy;
-                    }
-
-                    $client = new GuzzleClient($guzzleConfig);
-
-                    $response = $client->request('GET', $debridUrl, [
-                        'sink' => $fullStoragePath,
-                        'progress' => function ($downloadTotal, $downloadedBytes) use (
-                            $download,
-                            $downloadUuid,
-                            $linkHash,
-                            &$lastUpdate,
-                            &$downloadedSoFar
-                        ) {
-                            $downloadedSoFar = $downloadedBytes;
-                            $now = time();
-
-                            if (Cache::has("cancel_download_{$downloadUuid}")) {
-                                throw new \RuntimeException('DOWNLOAD_CANCELLED_BY_USER');
-                            }
-
-                            if ($now - $lastUpdate >= 1 || ($downloadTotal > 0 && $downloadedBytes >= $downloadTotal)) {
-                                $lastUpdate = $now;
-                                $fresh = $download->fresh();
-                                if (! $fresh || $fresh->status === 'cancelled') {
-                                    throw new \RuntimeException('DOWNLOAD_CANCELLED_BY_USER');
-                                }
-                                $updateData = ['downloaded_bytes' => $downloadedBytes];
-                                if ($downloadTotal > 0 && $download->filesize <= 0) {
-                                    $updateData['filesize'] = $downloadTotal;
-                                }
-                                DebridDownload::where('link_hash', $linkHash)->where('status', 'downloading')->update($updateData);
-                            }
-                        },
-                    ]);
-
-                    if ($response->getStatusCode() === 200 && file_exists($fullStoragePath)) {
-                        if ($proxy) {
-                            Cache::put('last_working_rd_proxy', $proxy, now()->addHours(2));
-                        }
-
-                        $actualFileSize = filesize($fullStoragePath);
-                        DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update([
-                            'status' => 'completed',
-                            'filesize' => $actualFileSize ?: $totalSize,
-                            'downloaded_bytes' => $actualFileSize ?: $totalSize,
-                            'storage_path' => $relativeFilePath,
-                            'filename' => $safeFilename,
-                        ]);
-                        $downloadSuccess = true;
-                        break;
-                    }
-                } catch (\Throwable $e) {
-                    if ($e->getMessage() === 'DOWNLOAD_CANCELLED_BY_USER' || str_contains($e->getMessage(), 'DOWNLOAD_CANCELLED_BY_USER')) {
+                foreach ($orderedProxies as $proxyIndex => $proxy) {
+                    if (Cache::has("cancel_download_{$downloadUuid}")) {
                         if (file_exists($fullStoragePath)) {
                             @unlink($fullStoragePath);
                         }
@@ -210,31 +137,130 @@ class ProcessDebridDownloadJob implements ShouldQueue
                         return;
                     }
 
-                    $lastException = $e;
-                    $proxyLabel = RealDebridService::getDisplayProxy($proxy);
-                    Log::warning("[INDIRME_PROXY_HATASI] Proxy [{$proxyLabel}] başarısız (UUID: {$downloadUuid}): ".$e->getMessage().'. Sıradaki deneniyor...');
+                    try {
+                        $guzzleConfig = [
+                            'verify' => false,
+                            RequestOptions::TIMEOUT => 7200,
+                            RequestOptions::READ_TIMEOUT => 7200,
+                            RequestOptions::CONNECT_TIMEOUT => $proxy ? 10.0 : 15.0,
+                            'force_ip_resolve' => 'v4',
+                        ];
 
-                    Cache::forget('last_working_rd_proxy');
-                    if ($proxy) {
-                        Cache::put('rd_proxy_blocked_'.md5($proxy), true, now()->addHours(1));
-                    }
+                        if ($proxy) {
+                            $guzzleConfig['proxy'] = $proxy;
+                        }
 
-                    // If Real-Debrid rejected link due to IP change or expiration, re-unrestrict once
-                    if ($e instanceof ClientException && in_array($e->getResponse()?->getStatusCode(), [401, 403, 404, 410, 416])) {
-                        try {
-                            $useRemote = $download->use_remote ?? config('services.realdebrid.use_remote', true);
-                            $refreshResult = $rdService->unrestrictLink($download->original_link, null, $useRemote);
-                            if ($refreshResult['success'] && ! empty($refreshResult['data']['download_link'])) {
-                                $debridUrl = $refreshResult['data']['download_link'];
-                                DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update(['debrid_link' => $debridUrl]);
+                        $client = new GuzzleClient($guzzleConfig);
+
+                        $response = $client->request('GET', $debridUrl, [
+                            'sink' => $fullStoragePath,
+                            'progress' => function ($downloadTotal, $downloadedBytes) use (
+                                $download,
+                                $downloadUuid,
+                                $linkHash,
+                                &$lastUpdate,
+                                &$downloadedSoFar
+                            ) {
+                                $downloadedSoFar = $downloadedBytes;
+                                $now = time();
+
+                                if (Cache::has("cancel_download_{$downloadUuid}")) {
+                                    throw new \RuntimeException('DOWNLOAD_CANCELLED_BY_USER');
+                                }
+
+                                if ($now - $lastUpdate >= 1 || ($downloadTotal > 0 && $downloadedBytes >= $downloadTotal)) {
+                                    $lastUpdate = $now;
+                                    $fresh = $download->fresh();
+                                    if (! $fresh || $fresh->status === 'cancelled') {
+                                        throw new \RuntimeException('DOWNLOAD_CANCELLED_BY_USER');
+                                    }
+                                    $updateData = ['downloaded_bytes' => $downloadedBytes];
+                                    if ($downloadTotal > 0 && $download->filesize <= 0) {
+                                        $updateData['filesize'] = $downloadTotal;
+                                    }
+                                    DebridDownload::where('link_hash', $linkHash)->where('status', 'downloading')->update($updateData);
+                                }
+                            },
+                        ]);
+
+                        if ($response->getStatusCode() === 200 && file_exists($fullStoragePath)) {
+                            if ($proxy) {
+                                Cache::put('last_working_rd_proxy', $proxy, now()->addHours(2));
                             }
-                        } catch (\Throwable $re) {
-                            Log::debug('Failed to re-unrestrict on link error: '.$re->getMessage());
+
+                            $actualFileSize = filesize($fullStoragePath);
+                            DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update([
+                                'status' => 'completed',
+                                'filesize' => $actualFileSize ?: $totalSize,
+                                'downloaded_bytes' => $actualFileSize ?: $totalSize,
+                                'storage_path' => $relativeFilePath,
+                                'filename' => $safeFilename,
+                            ]);
+                            $downloadSuccess = true;
+                            break 2;
+                        }
+                    } catch (\Throwable $e) {
+                        if ($e->getMessage() === 'DOWNLOAD_CANCELLED_BY_USER' || str_contains($e->getMessage(), 'DOWNLOAD_CANCELLED_BY_USER')) {
+                            if (file_exists($fullStoragePath)) {
+                                @unlink($fullStoragePath);
+                            }
+                            if (Storage::disk('public')->exists($relativeDir)) {
+                                Storage::disk('public')->deleteDirectory($relativeDir);
+                            }
+                            Cache::forget("cancel_download_{$downloadUuid}");
+
+                            return;
+                        }
+
+                        $lastException = $e;
+                        $proxyLabel = RealDebridService::getDisplayProxy($proxy);
+                        Log::warning("[INDIRME_PROXY_HATASI] Proxy [{$proxyLabel}] başarısız (UUID: {$downloadUuid}): ".$e->getMessage().'. Sıradaki deneniyor...');
+
+                        Cache::forget('last_working_rd_proxy');
+                        if ($proxy) {
+                            Cache::put('rd_proxy_blocked_'.md5($proxy), true, now()->addHours(1));
+                        }
+
+                        // Handle BadResponseException (including 503, 502, 504, 403, 404, etc.)
+                        if ($e instanceof BadResponseException) {
+                            $statusCode = $e->getResponse()?->getStatusCode();
+                            if (in_array($statusCode, [401, 403, 404, 410, 416, 500, 502, 503, 504])) {
+                                try {
+                                    $useRemote = $download->use_remote ?? config('services.realdebrid.use_remote', true);
+                                    $refreshResult = $rdService->unrestrictLink($download->original_link, null, $useRemote);
+                                    if (! $refreshResult['success']) {
+                                        $refreshResult = $rdService->unrestrictLink($download->original_link, null, false);
+                                    }
+                                    if ($refreshResult['success'] && ! empty($refreshResult['data']['download_link'])) {
+                                        $debridUrl = $refreshResult['data']['download_link'];
+                                        DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update(['debrid_link' => $debridUrl]);
+                                    }
+                                } catch (\Throwable $re) {
+                                    Log::debug('Failed to re-unrestrict on link error: '.$re->getMessage());
+                                }
+                            }
+                        }
+
+                        if (file_exists($fullStoragePath)) {
+                            @unlink($fullStoragePath);
                         }
                     }
+                }
 
-                    if (file_exists($fullStoragePath)) {
-                        @unlink($fullStoragePath);
+                // If attempt 1 failed, re-unrestrict link once with fresh candidates before attempt 2
+                if (! $downloadSuccess && $attempt < $maxAttempts) {
+                    try {
+                        $useRemote = $download->use_remote ?? config('services.realdebrid.use_remote', true);
+                        $refreshResult = $rdService->unrestrictLink($download->original_link, null, $useRemote);
+                        if (! $refreshResult['success']) {
+                            $refreshResult = $rdService->unrestrictLink($download->original_link, null, false);
+                        }
+                        if ($refreshResult['success'] && ! empty($refreshResult['data']['download_link'])) {
+                            $debridUrl = $refreshResult['data']['download_link'];
+                            DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update(['debrid_link' => $debridUrl]);
+                        }
+                    } catch (\Throwable $re) {
+                        Log::debug('Failed to re-unrestrict on retry attempt: '.$re->getMessage());
                     }
                 }
             }
@@ -254,12 +280,19 @@ class ProcessDebridDownloadJob implements ShouldQueue
                 return;
             }
 
-            Log::error("ProcessDebridDownloadJob Error (UUID: {$downloadUuid}): ".$e->getMessage());
+            $rawError = $e->getMessage();
+            if (str_contains($rawError, '503 Service Unavailable') || str_contains($rawError, '503')) {
+                $userFriendlyError = 'Real-Debrid CDN sunucusu geçici olarak yanıt vermiyor (503 Service Unavailable). Lütfen birkaç dakika sonra tekrar deneyin.';
+            } else {
+                $userFriendlyError = 'İndirme hatası: '.trim(preg_replace('/<!DOCTYPE.*$/is', '', $rawError));
+            }
+
+            Log::error("ProcessDebridDownloadJob Error (UUID: {$downloadUuid}): ".$rawError);
             $fresh = $download->fresh();
             if ($fresh && $fresh->status !== 'cancelled') {
                 DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update([
                     'status' => 'failed',
-                    'error_message' => 'İndirme hatası: '.$e->getMessage(),
+                    'error_message' => $userFriendlyError,
                 ]);
             }
         }
