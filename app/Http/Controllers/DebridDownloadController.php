@@ -437,15 +437,26 @@ class DebridDownloadController extends Controller
         $linkHash = $download->link_hash;
         $downloadUuid = $download->uuid;
 
-        if ($isSuperUser) {
-            $allMatching = DebridDownload::where('link_hash', $linkHash)->get();
+        // 1. Mark as cancelled before deletion so active loop notices
+        $download->update(['status' => 'cancelled']);
+        $download->delete();
 
-            foreach ($allMatching as $d) {
-                Cache::put("cancel_download_{$d->uuid}", true, now()->addMinutes(10));
-                $d->update(['status' => 'cancelled']);
-                $d->delete();
+        // 2. Only delete physical file and cancel job if NO OTHER active/completed user record uses this link_hash
+        $otherActiveCount = DebridDownload::where('link_hash', $linkHash)
+            ->where('status', '!=', 'cancelled')
+            ->count();
+
+        if ($otherActiveCount === 0) {
+            // Signal cancellation to any active background download jobs
+            Cache::put("cancel_download_{$downloadUuid}", true, now()->addMinutes(10));
+
+            if (empty($storagePath)) {
+                $storagePath = DebridDownload::where('link_hash', $linkHash)
+                    ->whereNotNull('storage_path')
+                    ->value('storage_path');
             }
 
+            // Delete physical storage file and folder
             if (! empty($storagePath)) {
                 $fullPath = Storage::disk('public')->path($storagePath);
                 if (file_exists($fullPath)) {
@@ -457,45 +468,11 @@ class DebridDownloadController extends Controller
                 }
             }
 
-            $msg = 'Dosya tüm kullanıcılardan ve veritabanından tamamen silindi.';
-        } else {
-            // 1. Mark as cancelled before deletion so active loop notices
-            $download->update(['status' => 'cancelled']);
-            $download->delete();
-
-            // 2. Only delete physical file and cancel job if NO OTHER active/completed user record uses this link_hash
-            $otherActiveCount = DebridDownload::where('link_hash', $linkHash)
-                ->where('status', '!=', 'cancelled')
-                ->count();
-
-            if ($otherActiveCount === 0) {
-                // Signal cancellation to any active background download jobs
-                Cache::put("cancel_download_{$downloadUuid}", true, now()->addMinutes(10));
-
-                if (empty($storagePath)) {
-                    $storagePath = DebridDownload::where('link_hash', $linkHash)
-                        ->whereNotNull('storage_path')
-                        ->value('storage_path');
-                }
-
-                // Delete physical storage file and folder
-                if (! empty($storagePath)) {
-                    $fullPath = Storage::disk('public')->path($storagePath);
-                    if (file_exists($fullPath)) {
-                        @unlink($fullPath);
-                    }
-                    $dir = dirname($storagePath);
-                    if ($dir && $dir !== '.' && Storage::disk('public')->exists($dir)) {
-                        Storage::disk('public')->deleteDirectory($dir);
-                    }
-                }
-
-                // Clean up any remaining cancelled records for this link_hash
-                DebridDownload::where('link_hash', $linkHash)->delete();
-            }
-
-            $msg = 'İndirme iptal edildi ve dosya kaydı silindi.';
+            // Clean up any remaining cancelled records for this link_hash
+            DebridDownload::where('link_hash', $linkHash)->delete();
         }
+
+        $msg = 'İndirme kaydı silindi.';
 
         if (request()->wantsJson()) {
             return response()->json([
