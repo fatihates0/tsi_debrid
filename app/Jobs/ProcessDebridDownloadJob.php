@@ -81,6 +81,8 @@ class ProcessDebridDownloadJob implements ShouldQueue
                     'filesize' => $data['filesize'] ?? 0,
                     'mime_type' => $data['mime_type'] ?? null,
                 ]);
+
+                $download = $download->fresh();
             }
 
             if (Cache::has("cancel_download_{$downloadUuid}")) {
@@ -101,6 +103,10 @@ class ProcessDebridDownloadJob implements ShouldQueue
             $fullStoragePath = Storage::disk('public')->path($relativeFilePath);
 
             $debridUrl = $download->debrid_link;
+
+            if (empty($debridUrl)) {
+                throw new Exception('Real-Debrid indirme adresi (debrid_link) boş veya geçersiz.');
+            }
             $totalSize = (int) ($download->filesize ?? 0);
 
             // Ensure sufficient free disk space exists before starting download

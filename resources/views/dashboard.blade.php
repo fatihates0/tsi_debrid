@@ -514,6 +514,12 @@
                                             :title="item.filename || 'Dosya Adı Bekleniyor...'">
                                             <i class="fa-regular fa-file-lines text-indigo-400 shrink-0"></i>
                                             <span class="truncate" x-text="item.filename || 'Dönüştürülüyor...'"></span>
+                                            <template x-if="isSuperUser && item.user_count">
+                                                <span
+                                                    class="px-2 py-0.5 text-[10px] font-bold rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 whitespace-nowrap shrink-0"
+                                                    :title="'Bu dosya toplam ' + item.user_count + ' kullanıcı hesabına tanımlı'"
+                                                    x-text="item.user_count + ' Kullanıcı'"></span>
+                                            </template>
                                         </div>
                                     </td>
 
@@ -833,9 +839,11 @@
                 async deleteItem(uuid) {
                     const item = this.downloadsList.find(d => d.uuid === uuid);
                     const isRunning = item && ['pending', 'unrestricting', 'downloading'].includes(item.status);
-                    const promptText = isRunning
-                        ? 'Bu indirmeyi durdurup iptal etmek ve kaydı silmek istediğinize emin misiniz?'
-                        : 'Bu önbellek dosyasını ve kaydını silmek istediğinize emin misiniz?';
+                    const promptText = this.isSuperUser
+                        ? 'Superuser Yetkisi: Bu dosyayı TÜM kullanıcılardan ve önbellekten tamamen silmek istediğinize emin misiniz?'
+                        : (isRunning
+                            ? 'Bu indirmeyi durdurup iptal etmek ve kaydı silmek istediğinize emin misiniz?'
+                            : 'Bu önbellek dosyasını ve kaydını silmek istediğinize emin misiniz?');
 
                     if (!confirm(promptText)) return;
 
@@ -939,20 +947,20 @@
 
                 copyLink(text) {
                     navigator.clipboard.writeText(text);
-                    this.showToast('⚡ Proxy İndirme Linki Panoya Kopyalandı!', 'success');
+                    this.showToast('Proxy İndirme Linki Panoya Kopyalandı!', 'success');
                 },
 
                 copyIdmLink(item) {
                     if (!item) return;
                     const idmUrl = window.location.origin + '/api/indir/' + (item.id || item.uuid);
                     navigator.clipboard.writeText(idmUrl);
-                    this.showToast('⚡ IDM Uyumlu Bağlantı Kopyalandı!', 'success');
+                    this.showToast('IDM Uyumlu Bağlantı Kopyalandı!', 'success');
                 },
 
                 copyOriginalLink(link) {
                     if (!link) return;
                     navigator.clipboard.writeText(link);
-                    this.showToast('🔗 Orijinal Bağlantı Panoya Kopyalandı!', 'success');
+                    this.showToast('Orijinal Bağlantı Panoya Kopyalandı!', 'success');
                 },
 
                 getProgress(item) {

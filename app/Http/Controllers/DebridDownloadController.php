@@ -10,6 +10,7 @@ use App\Services\XenForoAuthService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
@@ -273,6 +274,14 @@ class DebridDownloadController extends Controller
 
         $downloads = $query->orderBy('created_at', 'desc')->limit(200)->get();
 
+        $linkHashCounts = DebridDownload::select('link_hash', DB::raw('COUNT(*) as total_users'))
+            ->groupBy('link_hash')
+            ->pluck('total_users', 'link_hash');
+
+        foreach ($downloads as $d) {
+            $d->user_count = (int) ($linkHashCounts[$d->link_hash] ?? 1);
+        }
+
         if (! $isSuperUser) {
             $downloads->makeHidden(['user_ip']);
         }
@@ -404,20 +413,15 @@ class DebridDownloadController extends Controller
         $linkHash = $download->link_hash;
         $downloadUuid = $download->uuid;
 
-        // 1. Mark as cancelled before deletion so active loop notices
-        $download->update(['status' => 'cancelled']);
-        $download->delete();
+        if ($isSuperUser) {
+            $allMatching = DebridDownload::where('link_hash', $linkHash)->get();
 
-        // 2. Only delete physical file and cancel job if NO OTHER active/completed user record uses this link_hash
-        $otherActiveCount = DebridDownload::where('link_hash', $linkHash)
-            ->where('status', '!=', 'cancelled')
-            ->count();
+            foreach ($allMatching as $d) {
+                Cache::put("cancel_download_{$d->uuid}", true, now()->addMinutes(10));
+                $d->update(['status' => 'cancelled']);
+                $d->delete();
+            }
 
-        if ($otherActiveCount === 0) {
-            // Signal cancellation to any active background download jobs
-            Cache::put("cancel_download_{$downloadUuid}", true, now()->addMinutes(10));
-
-            // Delete physical storage file and folder
             if (! empty($storagePath)) {
                 $fullPath = Storage::disk('public')->path($storagePath);
                 if (file_exists($fullPath)) {
@@ -428,16 +432,46 @@ class DebridDownloadController extends Controller
                     Storage::disk('public')->deleteDirectory($dir);
                 }
             }
+
+            $msg = 'Dosya tüm kullanıcılardan ve veritabanından tamamen silindi.';
+        } else {
+            // 1. Mark as cancelled before deletion so active loop notices
+            $download->update(['status' => 'cancelled']);
+            $download->delete();
+
+            // 2. Only delete physical file and cancel job if NO OTHER active/completed user record uses this link_hash
+            $otherActiveCount = DebridDownload::where('link_hash', $linkHash)
+                ->where('status', '!=', 'cancelled')
+                ->count();
+
+            if ($otherActiveCount === 0) {
+                // Signal cancellation to any active background download jobs
+                Cache::put("cancel_download_{$downloadUuid}", true, now()->addMinutes(10));
+
+                // Delete physical storage file and folder
+                if (! empty($storagePath)) {
+                    $fullPath = Storage::disk('public')->path($storagePath);
+                    if (file_exists($fullPath)) {
+                        @unlink($fullPath);
+                    }
+                    $dir = dirname($storagePath);
+                    if ($dir && $dir !== '.' && Storage::disk('public')->exists($dir)) {
+                        Storage::disk('public')->deleteDirectory($dir);
+                    }
+                }
+            }
+
+            $msg = 'İndirme iptal edildi ve dosya kaydı silindi.';
         }
 
         if (request()->wantsJson()) {
             return response()->json([
                 'success' => true,
-                'message' => 'İndirme iptal edildi ve dosya kaydı silindi.',
+                'message' => $msg,
             ]);
         }
 
-        return redirect()->route('dashboard')->with('success', 'İndirme iptal edildi ve dosya silindi.');
+        return redirect()->route('dashboard')->with('success', $msg);
     }
 
     /**
