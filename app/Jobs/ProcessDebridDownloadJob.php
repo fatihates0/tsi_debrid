@@ -111,24 +111,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
             $lastUpdate = time();
             $downloadedSoFar = 0;
 
-            $proxies = RealDebridService::getProxyList();
-            $orderedProxies = [];
-            if (! empty($proxies)) {
-                $workingProxy = Cache::get('last_working_rd_proxy');
-                if ($workingProxy && in_array($workingProxy, $proxies, true)) {
-                    $orderedProxies[] = $workingProxy;
-                }
-                foreach ($proxies as $p) {
-                    if (! in_array($p, $orderedProxies, true)) {
-                        $orderedProxies[] = $p;
-                    }
-                }
-                if (! Cache::has('rd_direct_ip_blocked')) {
-                    $orderedProxies[] = null;
-                }
-            } else {
-                $orderedProxies[] = null;
-            }
+            $orderedProxies = RealDebridService::getCandidateProxiesForApi();
 
             $downloadSuccess = false;
             $lastException = null;
@@ -224,6 +207,11 @@ class ProcessDebridDownloadJob implements ShouldQueue
                     $lastException = $e;
                     $proxyLabel = RealDebridService::getDisplayProxy($proxy);
                     Log::warning("[INDIRME_PROXY_HATASI] Proxy [{$proxyLabel}] başarısız (UUID: {$downloadUuid}): ".$e->getMessage().'. Sıradaki deneniyor...');
+
+                    Cache::forget('last_working_rd_proxy');
+                    if ($proxy) {
+                        Cache::put('rd_proxy_blocked_'.md5($proxy), true, now()->addHours(1));
+                    }
 
                     // If Real-Debrid rejected link due to IP change or expiration, re-unrestrict once
                     if ($e instanceof ClientException && in_array($e->getResponse()?->getStatusCode(), [401, 403, 404, 410, 416])) {

@@ -152,7 +152,8 @@
                     <!-- XENFORO USER PROFILE & LOGOUT -->
                     <div class="flex items-center gap-3 pl-3 border-l border-slate-800">
                         @if(!empty($isSuperUser) && $isSuperUser)
-                            <div class="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center gap-1.5">
+                            <div
+                                class="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center gap-1.5">
                                 <i class="fa-solid fa-shield-halved text-amber-400"></i> SUPERUSER
                             </div>
                         @endif
@@ -309,15 +310,19 @@
                 <div class="glass-card rounded-2xl p-6 border border-amber-500/30 space-y-6">
                     <div class="flex items-center justify-between border-b border-slate-800 pb-4">
                         <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                            <div
+                                class="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
                                 <i class="fa-solid fa-users-gear text-lg"></i>
                             </div>
                             <div>
                                 <h3 class="text-base font-bold text-white flex items-center gap-2">
                                     <span>Superuser Yönetim Paneli</span>
-                                    <span class="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">Canlı İstatistikler</span>
+                                    <span
+                                        class="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">Canlı
+                                        İstatistikler</span>
                                 </h3>
-                                <p class="text-xs text-slate-400">Tüm kullanıcıların önbellekleme durumları, aktif IP adresleri ve bağlantıları</p>
+                                <p class="text-xs text-slate-400">Tüm kullanıcıların önbellekleme durumları, aktif IP
+                                    adresleri ve bağlantıları</p>
                             </div>
                         </div>
                     </div>
@@ -325,7 +330,8 @@
                     <!-- USER STATS TABLE -->
                     <div class="overflow-x-auto">
                         <table class="w-full text-left text-sm text-slate-300">
-                            <thead class="bg-slate-900/90 text-xs uppercase text-slate-400 font-semibold border-b border-slate-800">
+                            <thead
+                                class="bg-slate-900/90 text-xs uppercase text-slate-400 font-semibold border-b border-slate-800">
                                 <tr>
                                     <th class="px-4 py-3">Kullanıcı</th>
                                     <th class="px-4 py-3 text-center">Önbelleklenen Dosya</th>
@@ -339,28 +345,34 @@
                                     <tr class="hover:bg-slate-900/40 transition-colors">
                                         <td class="px-4 py-3 font-semibold text-white flex items-center gap-2">
                                             <template x-if="uStat.avatar_url">
-                                                <img :src="uStat.avatar_url" class="w-6 h-6 rounded-full border border-indigo-500/30 object-cover">
+                                                <img :src="uStat.avatar_url"
+                                                    class="w-6 h-6 rounded-full border border-indigo-500/30 object-cover">
                                             </template>
                                             <template x-if="!uStat.avatar_url">
                                                 <div class="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-[10px] text-slate-300 font-bold border border-slate-700"
-                                                     x-text="(uStat.name || 'U').charAt(0).toUpperCase()">
+                                                    x-text="(uStat.name || 'U').charAt(0).toUpperCase()">
                                                 </div>
                                             </template>
                                             <span x-text="uStat.name"></span>
-                                            <span class="text-xs text-slate-500 font-mono" x-text="'(' + uStat.email + ')'"></span>
+                                            <span class="text-xs text-slate-500 font-mono"
+                                                x-text="'(' + uStat.email + ')'"></span>
                                         </td>
-                                        <td class="px-4 py-3 text-center font-mono text-emerald-400 font-bold" x-text="uStat.total_cached"></td>
-                                        <td class="px-4 py-3 text-center font-mono text-sky-400" x-text="formatBytesJS(uStat.total_bytes)"></td>
+                                        <td class="px-4 py-3 text-center font-mono text-emerald-400 font-bold"
+                                            x-text="uStat.total_cached"></td>
+                                        <td class="px-4 py-3 text-center font-mono text-sky-400"
+                                            x-text="formatBytesJS(uStat.total_bytes)"></td>
                                         <td class="px-4 py-3 text-center">
                                             <template x-if="uStat.active_downloads > 0">
-                                                <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
-                                                      x-text="uStat.active_downloads + ' Aktif'"></span>
+                                                <span
+                                                    class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+                                                    x-text="uStat.active_downloads + ' Aktif'"></span>
                                             </template>
                                             <template x-if="!uStat.active_downloads || uStat.active_downloads <= 0">
                                                 <span class="text-xs text-slate-500">Yok</span>
                                             </template>
                                         </td>
-                                        <td class="px-4 py-3 text-right font-mono text-xs text-amber-300 font-bold" x-text="uStat.last_ip || 'N/A'"></td>
+                                        <td class="px-4 py-3 text-right font-mono text-xs text-amber-300 font-bold"
+                                            x-text="uStat.last_ip || 'N/A'"></td>
                                     </tr>
                                 </template>
                                 <template x-if="userStatsList.length === 0">
@@ -376,11 +388,15 @@
 
                     <!-- USER STATS PAGINATION FOOTER -->
                     <template x-if="userStatsList.length > userStatsPerPage">
-                        <div class="px-4 py-3 border-t border-slate-800/80 bg-slate-900/60 flex items-center justify-between flex-wrap gap-3 text-xs rounded-b-xl">
+                        <div
+                            class="px-4 py-3 border-t border-slate-800/80 bg-slate-900/60 flex items-center justify-between flex-wrap gap-3 text-xs rounded-b-xl">
                             <div class="text-slate-400">
-                                Toplam <span class="font-bold text-amber-300" x-text="userStatsList.length"></span> kullanıcıdan 
-                                <span class="font-bold text-slate-200" x-text="((userStatsPage - 1) * userStatsPerPage) + 1"></span> - 
-                                <span class="font-bold text-slate-200" x-text="Math.min(userStatsPage * userStatsPerPage, userStatsList.length)"></span> 
+                                Toplam <span class="font-bold text-amber-300" x-text="userStatsList.length"></span>
+                                kullanıcıdan
+                                <span class="font-bold text-slate-200"
+                                    x-text="((userStatsPage - 1) * userStatsPerPage) + 1"></span> -
+                                <span class="font-bold text-slate-200"
+                                    x-text="Math.min(userStatsPage * userStatsPerPage, userStatsList.length)"></span>
                                 arası gösteriliyor
                             </div>
                             <div class="flex items-center gap-2">
@@ -389,7 +405,8 @@
                                     <i class="fa-solid fa-chevron-left text-[10px]"></i> Önceki
                                 </button>
                                 <span class="px-2 text-slate-400 font-mono text-xs">
-                                    Sayfa <span class="font-bold text-white" x-text="userStatsPage"></span> / <span x-text="totalUserStatsPages()"></span>
+                                    Sayfa <span class="font-bold text-white" x-text="userStatsPage"></span> / <span
+                                        x-text="totalUserStatsPages()"></span>
                                 </span>
                                 <button @click="userStatsPage++" :disabled="userStatsPage >= totalUserStatsPages()"
                                     class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1 font-semibold">
@@ -451,14 +468,17 @@
                                     <!-- SUPERUSER ONLY: USER & IP COLUMNS -->
                                     <template x-if="isSuperUser">
                                         <td class="px-3 py-3.5 text-xs font-semibold text-amber-300 whitespace-nowrap">
-                                            <div class="flex items-center gap-1.5 truncate max-w-[120px]" :title="item.user?.name">
+                                            <div class="flex items-center gap-1.5 truncate max-w-[120px]"
+                                                :title="item.user?.name">
                                                 <i class="fa-solid fa-user text-[10px] shrink-0"></i>
-                                                <span class="truncate" x-text="item.user?.name || 'Sistem / Superuser'"></span>
+                                                <span class="truncate"
+                                                    x-text="item.user?.name || 'Sistem / Superuser'"></span>
                                             </div>
                                         </td>
                                     </template>
                                     <template x-if="isSuperUser">
-                                        <td class="px-3 py-3.5 text-xs font-mono text-amber-400 font-bold whitespace-nowrap">
+                                        <td
+                                            class="px-3 py-3.5 text-xs font-mono text-amber-400 font-bold whitespace-nowrap">
                                             <span x-text="item.user_ip || 'N/A'"></span>
                                         </td>
                                     </template>
@@ -485,7 +505,8 @@
                                             x-if="item.status === 'downloading' || item.status === 'unrestricting' || item.status === 'pending'">
                                             <div class="space-y-1.5 min-w-[140px] max-w-[180px]">
                                                 <div class="flex justify-between text-xs">
-                                                    <span class="text-indigo-400 font-medium flex items-center gap-1 truncate">
+                                                    <span
+                                                        class="text-indigo-400 font-medium flex items-center gap-1 truncate">
                                                         <i class="fa-solid fa-spinner animate-spin shrink-0"></i>
                                                         <span class="truncate"
                                                             x-text="item.status === 'downloading' ? 'İndiriliyor...' : 'Real-Debrid Bekleniyor'"></span>
@@ -518,7 +539,8 @@
                                     </td>
 
                                     <!-- DOWNLOAD COUNT -->
-                                    <td class="px-3 py-3.5 text-center text-xs font-mono font-bold text-amber-400 whitespace-nowrap">
+                                    <td
+                                        class="px-3 py-3.5 text-center text-xs font-mono font-bold text-amber-400 whitespace-nowrap">
                                         <span x-text="item.download_count"></span> x
                                     </td>
 
@@ -537,7 +559,7 @@
                                             <template x-if="item.status === 'completed'">
                                                 <button @click="copyLink(window.location.origin + '/dl/' + item.uuid)"
                                                     class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition"
-                                                    title="Proxy İndirme Linkini Kopyala">
+                                                    title="İndirme Linkini Kopyala">
                                                     <i class="fa-solid fa-copy"></i>
                                                 </button>
                                             </template>
@@ -576,12 +598,16 @@
 
                 <!-- DOWNLOADS LIST PAGINATION FOOTER -->
                 <template x-if="downloadsList.length > 0">
-                    <div class="px-5 py-3.5 border-t border-slate-800/80 bg-slate-900/60 flex items-center justify-between flex-wrap gap-3 text-xs">
+                    <div
+                        class="px-5 py-3.5 border-t border-slate-800/80 bg-slate-900/60 flex items-center justify-between flex-wrap gap-3 text-xs">
                         <div class="flex items-center gap-3">
                             <div class="text-slate-400">
-                                Toplam <span class="font-bold text-indigo-400" x-text="downloadsList.length"></span> kayıttan 
-                                <span class="font-bold text-slate-200" x-text="((downloadsPage - 1) * downloadsPerPage) + 1"></span> - 
-                                <span class="font-bold text-slate-200" x-text="Math.min(downloadsPage * downloadsPerPage, downloadsList.length)"></span> 
+                                Toplam <span class="font-bold text-indigo-400" x-text="downloadsList.length"></span>
+                                kayıttan
+                                <span class="font-bold text-slate-200"
+                                    x-text="((downloadsPage - 1) * downloadsPerPage) + 1"></span> -
+                                <span class="font-bold text-slate-200"
+                                    x-text="Math.min(downloadsPage * downloadsPerPage, downloadsList.length)"></span>
                                 arası gösteriliyor
                             </div>
                             <div class="flex items-center gap-1.5 text-slate-400">
