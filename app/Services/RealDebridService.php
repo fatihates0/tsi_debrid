@@ -251,7 +251,7 @@ class RealDebridService
                     $lastError = 'Real-Debrid API Hatası ('.$response->status().'): '.$errorMsg;
 
                     $isIpBlocked = str_contains(strtolower((string) $errorMsg), 'ip_not_allowed');
-                    if ($isIpBlocked || $response->status() === 403) {
+                    if ($isIpBlocked) {
                         Cache::forget('last_working_rd_proxy');
                         if ($proxy) {
                             Cache::put('rd_proxy_blocked_'.md5($proxy), true, now()->addSeconds(30));
@@ -261,7 +261,7 @@ class RealDebridService
                     }
 
                     $isRetryable = $isIpBlocked
-                        || in_array($response->status(), [402, 403, 407, 502, 503, 504])
+                        || in_array($response->status(), [402, 407, 502, 503, 504])
                         || str_contains(strtolower((string) $errorMsg), 'proxy');
 
                     if ($proxy && $isRetryable) {
@@ -362,11 +362,15 @@ class RealDebridService
                 if ($remote && str_contains(strtolower((string) $errorMsg), 'traffic_exhausted')) {
                     Log::info("RealDebrid Remote Traffic exhausted for link {$link}, automatically falling back to standard unrestrict (remote=0)");
 
+                    if ($proxy) {
+                        Cache::put('last_working_rd_proxy', $proxy, now()->addHours(2));
+                    }
+
                     return $this->unrestrictLink($link, $password, false);
                 }
 
                 $isIpBlocked = str_contains(strtolower((string) $errorMsg), 'ip_not_allowed');
-                if ($isIpBlocked || $response->status() === 403) {
+                if ($isIpBlocked) {
                     Cache::forget('last_working_rd_proxy');
                     if ($proxy) {
                         Cache::put('rd_proxy_blocked_'.md5($proxy), true, now()->addSeconds(30));
@@ -376,7 +380,7 @@ class RealDebridService
                 }
 
                 $isRetryable = $isIpBlocked
-                    || in_array($response->status(), [402, 403, 407, 502, 503, 504])
+                    || in_array($response->status(), [402, 407, 502, 503, 504])
                     || str_contains(strtolower((string) $errorMsg), 'proxy');
 
                 if ($proxy && $isRetryable) {
