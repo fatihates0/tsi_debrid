@@ -497,9 +497,6 @@
                                 <template x-if="isSuperUser">
                                     <th class="px-3 py-3.5">Kullanıcı</th>
                                 </template>
-                                <template x-if="isSuperUser">
-                                    <th class="px-3 py-3.5">Aktif IP</th>
-                                </template>
                                 <th class="px-3 py-3.5">Boyut</th>
                                 <th class="px-3 py-3.5 min-w-[160px]">Durum & İlerleme</th>
                                 <th class="px-3 py-3.5 text-center whitespace-nowrap">İndirme Sayısı</th>
@@ -533,12 +530,6 @@
                                                 <span class="truncate"
                                                     x-text="item.user?.name || 'Sistem / Superuser'"></span>
                                             </div>
-                                        </td>
-                                    </template>
-                                    <template x-if="isSuperUser">
-                                        <td
-                                            class="px-3 py-3.5 text-xs font-mono text-amber-400 font-bold whitespace-nowrap">
-                                            <span x-text="item.user_ip || 'N/A'"></span>
                                         </td>
                                     </template>
 
