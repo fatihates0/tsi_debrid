@@ -34,8 +34,7 @@ class RealDebridService
     }
 
     /**
-    /**
-     * Normalize proxy URL format (supports ip:port, ip:port:user:pass, http://, socks5://)
+     * Normalize proxy URL format (supports ip:port, ip:port:user:pass, http://, socks5://, socks5h://)
      */
     public static function normalizeProxyUrl(string $proxy): string
     {
@@ -50,7 +49,12 @@ class RealDebridService
             $trimmed = $m[2];
         }
 
-        // Handle IP:PORT:USER:PASS format (e.g. 131.222.217.100:50100:IlRGSL0b:h8uik0SGb6)
+        // Auto-convert socks5:// to socks5h:// for remote DNS resolution in cURL (fixes cURL error 35 & 97)
+        if ($scheme === 'socks5://') {
+            $scheme = 'socks5h://';
+        }
+
+        // Handle IP:PORT:USER:PASS format (e.g. 82.47.120.160:50101:U1us4e5n:y4iWBsotr1)
         $parts = explode(':', $trimmed);
         if (count($parts) === 4) {
             [$ip, $port, $user, $pass] = $parts;
