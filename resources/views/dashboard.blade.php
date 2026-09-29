@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TSI Debrid Proxy & Cache Hub</title>
+    <title>TSI Debrid & Cache Hub</title>
 
     <!-- Tailwind CSS (CDN for standalone single-file beauty) & Alpine.js -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -84,9 +84,8 @@
                     </div>
                     <div>
                         <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-                            TSI <span class="gradient-text font-black">DEBRID PROXY</span>
+                            TSI <span class="gradient-text font-black">DEBRID</span>
                         </h1>
-                        <p class="text-xs text-slate-400 font-medium">Real-Debrid Anti-Ban Caching Middleware</p>
                     </div>
                 </div>
 
@@ -94,13 +93,16 @@
                 <div class="flex items-center gap-3">
                     <template x-if="rdInfo.loading">
                         <div class="flex flex-col items-end gap-1">
-                            <div class="flex items-center gap-2 text-xs text-slate-400 glass-card px-3 py-1.5 rounded-xl border border-slate-800">
-                                <i class="fa-solid fa-spinner animate-spin text-indigo-400"></i> RD Hesabı Sorgulanıyor...
+                            <div
+                                class="flex items-center gap-2 text-xs text-slate-400 glass-card px-3 py-1.5 rounded-xl border border-slate-800">
+                                <i class="fa-solid fa-spinner animate-spin text-indigo-400"></i> RD Hesabı
+                                Sorgulanıyor...
                             </div>
                             <div class="text-[11px] font-mono text-slate-400 flex items-center gap-1.5 pr-1">
                                 <i class="fa-solid fa-network-wired text-[10px] text-indigo-400"></i>
                                 <span>Denenen IP:</span>
-                                <span class="font-bold text-slate-300" x-text="rdInfo.active_proxy || 'Doğrudan'"></span>
+                                <span class="font-bold text-slate-300"
+                                    x-text="rdInfo.active_proxy || 'Doğrudan'"></span>
                             </div>
                         </div>
                     </template>
@@ -113,9 +115,11 @@
                                     <span class="relative flex h-2.5 w-2.5">
                                         <span
                                             class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                                        <span
+                                            class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
                                     </span>
-                                    <span class="text-xs font-semibold text-slate-200" x-text="rdInfo.data.username"></span>
+                                    <span class="text-xs font-semibold text-slate-200"
+                                        x-text="rdInfo.data.username"></span>
                                 </div>
                                 <span class="h-3 w-px bg-slate-700"></span>
                                 <div class="text-xs text-indigo-300 font-medium flex items-center gap-1.5">
@@ -126,7 +130,8 @@
                             <div class="text-[11px] font-mono text-indigo-300/90 flex items-center gap-1.5 pr-1">
                                 <i class="fa-solid fa-network-wired text-[10px] text-indigo-400"></i>
                                 <span>Aktif IP:</span>
-                                <span class="font-bold text-white" x-text="rdInfo.active_proxy || rdInfo.data.active_proxy || 'Doğrudan'"></span>
+                                <span class="font-bold text-white"
+                                    x-text="rdInfo.active_proxy || rdInfo.data.active_proxy || 'Doğrudan'"></span>
                             </div>
                         </div>
                     </template>
@@ -141,7 +146,8 @@
                             <div class="text-[11px] font-mono text-amber-400/90 flex items-center gap-1.5 pr-1">
                                 <i class="fa-solid fa-network-wired text-[10px] text-amber-400"></i>
                                 <span>Denenen IP:</span>
-                                <span class="font-bold text-amber-200" x-text="rdInfo.active_proxy || 'Doğrudan'"></span>
+                                <span class="font-bold text-amber-200"
+                                    x-text="rdInfo.active_proxy || 'Doğrudan'"></span>
                             </div>
                         </div>
                     </template>
@@ -152,9 +158,11 @@
                     <div class="flex items-center gap-3 pl-3 border-l border-slate-800">
                         <div class="flex items-center gap-2">
                             @if(Auth::user()->avatar_url)
-                                <img src="{{ Auth::user()->avatar_url }}" alt="{{ Auth::user()->name }}" class="w-8 h-8 rounded-full border border-indigo-500/40 object-cover">
+                                <img src="{{ Auth::user()->avatar_url }}" alt="{{ Auth::user()->name }}"
+                                    class="w-8 h-8 rounded-full border border-indigo-500/40 object-cover">
                             @else
-                                <div class="w-8 h-8 rounded-full bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-300 font-bold text-xs">
+                                <div
+                                    class="w-8 h-8 rounded-full bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-300 font-bold text-xs">
                                     {{ strtoupper(substr(Auth::user()->name ?? 'U', 0, 1)) }}
                                 </div>
                             @endif
@@ -165,7 +173,8 @@
                         </div>
                         <form method="POST" action="{{ route('logout') }}">
                             @csrf
-                            <button type="submit" title="Çıkış Yap" class="p-2 rounded-xl bg-slate-800/80 hover:bg-red-500/20 text-slate-400 hover:text-red-400 border border-slate-700/60 hover:border-red-500/30 transition text-xs flex items-center gap-1.5">
+                            <button type="submit" title="Çıkış Yap"
+                                class="p-2 rounded-xl bg-slate-800/80 hover:bg-red-500/20 text-slate-400 hover:text-red-400 border border-slate-700/60 hover:border-red-500/30 transition text-xs flex items-center gap-1.5">
                                 <i class="fa-solid fa-right-from-bracket"></i>
                                 <span class="hidden md:inline">Çıkış</span>
                             </button>
@@ -226,7 +235,8 @@
                                 class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
                                 <i class="fa-solid fa-link"></i>
                             </div>
-                            <input type="url" x-model="inputUrl" id="link" required placeholder="https://mega.nz/file/..."
+                            <input type="url" x-model="inputUrl" id="link" required
+                                placeholder="https://mega.nz/file/..."
                                 class="w-full pl-11 pr-24 py-3.5 rounded-xl glass-input text-sm text-white placeholder-slate-500 focus:outline-none transition-all duration-200">
                             <button type="button" @click="pasteClipboard()"
                                 class="absolute right-2.5 top-2.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors flex items-center gap-1.5">
@@ -425,7 +435,8 @@
                                             <button @click="deleteItem(item.uuid)"
                                                 class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 hover:text-rose-400 text-slate-400 text-xs transition"
                                                 :title="['pending', 'unrestricting', 'downloading'].includes(item.status) ? 'İndirmeyi İptal Et ve Sil' : 'Önbelleği Sil'">
-                                                <i class="fa-solid" :class="['pending', 'unrestricting', 'downloading'].includes(item.status) ? 'fa-xmark text-rose-400' : 'fa-trash'"></i>
+                                                <i class="fa-solid"
+                                                    :class="['pending', 'unrestricting', 'downloading'].includes(item.status) ? 'fa-xmark text-rose-400' : 'fa-trash'"></i>
                                             </button>
                                         </div>
                                     </td>

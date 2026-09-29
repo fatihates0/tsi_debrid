@@ -28,8 +28,7 @@ class DebridProxyTest extends TestCase
     {
         $response = $this->get('/');
         $response->assertStatus(200);
-        $response->assertSee('DEBRID PROXY');
-        $response->assertSee('Anti-Ban');
+        $response->assertSee('DEBRID');
     }
 
     public function test_it_creates_a_new_download_job_on_link_submission()
@@ -117,20 +116,20 @@ class DebridProxyTest extends TestCase
         ]);
 
         // 1. Full GET request
-        $response = $this->get('/dl/'.$download->uuid);
+        $response = $this->get('/dl/' . $download->uuid);
         $response->assertStatus(200);
         $response->assertHeader('Content-Length', (string) $expectedSize);
         $response->assertHeader('Accept-Ranges', 'bytes');
         $this->assertEquals($content, $response->streamedContent());
 
         // 2. HEAD request (IDM size pre-check)
-        $headResponse = $this->call('HEAD', '/dl/'.$download->uuid);
+        $headResponse = $this->call('HEAD', '/dl/' . $download->uuid);
         $headResponse->assertStatus(200);
         $headResponse->assertHeader('Content-Length', (string) $expectedSize);
         $headResponse->assertHeader('Accept-Ranges', 'bytes');
 
         // 3. IDM Range 0-0 probe (1-byte probe to check total size and range support)
-        $probeResponse = $this->get('/dl/'.$download->uuid, [
+        $probeResponse = $this->get('/dl/' . $download->uuid, [
             'Range' => 'bytes=0-0',
         ]);
         $probeResponse->assertStatus(206);
@@ -139,7 +138,7 @@ class DebridProxyTest extends TestCase
         $this->assertEquals(substr($content, 0, 1), $probeResponse->streamedContent());
 
         // 4. Partial byte range chunk request (IDM multi-threaded download)
-        $chunkResponse = $this->get('/dl/'.$download->uuid, [
+        $chunkResponse = $this->get('/dl/' . $download->uuid, [
             'Range' => 'bytes=0-9',
         ]);
         $chunkResponse->assertStatus(206);
@@ -174,7 +173,7 @@ class DebridProxyTest extends TestCase
             'storage_path' => $storagePath,
         ]);
 
-        $response = $this->deleteJson('/downloads/'.$download->uuid);
+        $response = $this->deleteJson('/downloads/' . $download->uuid);
 
         $response->assertStatus(200);
         $response->assertJson(['success' => true]);

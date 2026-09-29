@@ -7,7 +7,6 @@ use App\Models\DebridDownload;
 use App\Services\RealDebridService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
@@ -99,7 +98,6 @@ class DebridDownloadController extends Controller
 
         // Dispatch job to queue (or dispatchAfterResponse if sync to prevent 504 Gateway Timeout)
         $queueDriver = config('queue.default');
-        Log::info("[INDIRME_KAYDI_OLUSTU] Yeni indirme talebi eklendi (UUID: {$download->uuid}) | Queue Driver: {$queueDriver} | Link: {$originalLink}");
 
         if ($queueDriver === 'sync') {
             ProcessDebridDownloadJob::dispatchAfterResponse($download);

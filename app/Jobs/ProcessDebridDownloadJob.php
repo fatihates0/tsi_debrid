@@ -37,11 +37,9 @@ class ProcessDebridDownloadJob implements ShouldQueue
         @ini_set('max_execution_time', '0');
 
         $downloadUuid = $this->download->uuid;
-        Log::info("[INDIRME_ADIM_1/4] Kuyruk İşleyicisi Görevi Devraldı (UUID: {$downloadUuid}) | Link: {$this->download->original_link}");
 
         // Check if download was cancelled before the job started
         if (Cache::has("cancel_download_{$downloadUuid}")) {
-            Log::info("[INDIRME_IPTAL] Görev başlamadan kullanıcı tarafından iptal edildi (UUID: {$downloadUuid})");
             Cache::forget("cancel_download_{$downloadUuid}");
 
             return;
@@ -50,8 +48,6 @@ class ProcessDebridDownloadJob implements ShouldQueue
         $download = $this->download->fresh();
 
         if (! $download || $download->status === 'cancelled') {
-            Log::info("[INDIRME_DURDURULDU] İndirme nesnesi bulunamadı veya iptal edilmiş (UUID: {$downloadUuid})");
-
             return;
         }
 
@@ -61,12 +57,10 @@ class ProcessDebridDownloadJob implements ShouldQueue
                 $download->update(['status' => 'unrestricting']);
                 $useRemote = $download->use_remote ?? config('services.realdebrid.use_remote', true);
 
-                Log::info("[INDIRME_ADIM_2/4] Real-Debrid API'den link dönüştürülüyor (unrestrict)... Remote Traffic: ".($useRemote ? 'EVET' : 'HAYIR'));
                 $unrestrictResult = $rdService->unrestrictLink($download->original_link, null, $useRemote);
 
                 if (! $unrestrictResult['success']) {
                     $errMsg = $unrestrictResult['message'] ?? 'Link dönüştürülemedi.';
-                    Log::error("[INDIRME_HATASI] Real-Debrid Unrestrict Başarısız (UUID: {$downloadUuid}): {$errMsg}");
 
                     $download->update([
                         'status' => 'failed',
@@ -77,7 +71,6 @@ class ProcessDebridDownloadJob implements ShouldQueue
                 }
 
                 $data = $unrestrictResult['data'];
-                Log::info("[INDIRME_ADIM_2/4_BASARILI] Real-Debrid Link Dönüştürüldü (UUID: {$downloadUuid}) | Dosya: ".($data['filename'] ?? 'bilinmiyor').' | Boyut: '.($data['filesize'] ?? 0).' bytes');
 
                 $download->update([
                     'debrid_id' => $data['id'] ?? null,
@@ -89,7 +82,6 @@ class ProcessDebridDownloadJob implements ShouldQueue
             }
 
             if (Cache::has("cancel_download_{$downloadUuid}")) {
-                Log::info("[INDIRME_IPTAL] Unrestrict sonrası kullanıcı iptal etti (UUID: {$downloadUuid})");
                 Cache::forget("cancel_download_{$downloadUuid}");
 
                 return;
@@ -102,8 +94,6 @@ class ProcessDebridDownloadJob implements ShouldQueue
             $relativeDir = 'downloads/'.$download->uuid;
             $relativeFilePath = $relativeDir.'/'.$safeFilename;
 
-            Log::info("[INDIRME_ADIM_3/4] Sunucu yerel disk klasörü hazırlanıyor: storage/app/public/{$relativeFilePath}");
-
             // Ensure storage directory exists
             Storage::disk('public')->makeDirectory($relativeDir);
             $fullStoragePath = Storage::disk('public')->path($relativeFilePath);
@@ -112,7 +102,6 @@ class ProcessDebridDownloadJob implements ShouldQueue
             $totalSize = $download->filesize;
 
             $lastUpdate = time();
-            $lastLogTime = time();
             $downloadedSoFar = 0;
 
             $proxies = RealDebridService::getProxyList();
@@ -134,16 +123,11 @@ class ProcessDebridDownloadJob implements ShouldQueue
                 $orderedProxies[] = null;
             }
 
-            Log::info('[INDIRME_ADIM_4/4] Dosya sunucuya indiriliyor... Denedecek Proxy Sayısı: '.count($orderedProxies));
-
             $downloadSuccess = false;
             $lastException = null;
 
             foreach ($orderedProxies as $proxyIndex => $proxy) {
-                $proxyLabel = RealDebridService::getDisplayProxy($proxy);
-
                 if (Cache::has("cancel_download_{$downloadUuid}")) {
-                    Log::info("[INDIRME_IPTAL] Transfer öncesi kullanıcı tarafından durduruldu (UUID: {$downloadUuid})");
                     if (file_exists($fullStoragePath)) {
                         @unlink($fullStoragePath);
                     }
@@ -170,16 +154,12 @@ class ProcessDebridDownloadJob implements ShouldQueue
 
                     $client = new GuzzleClient($guzzleConfig);
 
-                    Log::info("--> Proxy [{$proxyLabel}] ile sunucuya indirme başlatılıyor (UUID: {$downloadUuid})...");
-
                     $response = $client->request('GET', $debridUrl, [
                         'sink' => $fullStoragePath,
                         'progress' => function ($downloadTotal, $downloadedBytes) use (
                             $download,
                             $downloadUuid,
-                            $proxyLabel,
                             &$lastUpdate,
-                            &$lastLogTime,
                             &$downloadedSoFar
                         ) {
                             $downloadedSoFar = $downloadedBytes;
@@ -187,13 +167,6 @@ class ProcessDebridDownloadJob implements ShouldQueue
 
                             if (Cache::has("cancel_download_{$downloadUuid}")) {
                                 throw new \RuntimeException('DOWNLOAD_CANCELLED_BY_USER');
-                            }
-
-                            // Log progress to storage/logs/laravel.log every 10 seconds
-                            if ($now - $lastLogTime >= 10) {
-                                $lastLogTime = $now;
-                                $pct = ($downloadTotal > 0) ? round(($downloadedBytes / $downloadTotal) * 100, 1) : 0;
-                                Log::info("[INDIRME_ILERLEME] (UUID: {$downloadUuid}) İndirilen: {$downloadedBytes} / {$downloadTotal} bytes (%{$pct}) | Proxy: {$proxyLabel}");
                             }
 
                             if ($now - $lastUpdate >= 1 || ($downloadTotal > 0 && $downloadedBytes >= $downloadTotal)) {
@@ -225,12 +198,10 @@ class ProcessDebridDownloadJob implements ShouldQueue
                             'filename' => $safeFilename,
                         ]);
                         $downloadSuccess = true;
-                        Log::info("[INDIRME_TAMAMLANDI] Dosya sunucuya başarıyla indirildi (UUID: {$downloadUuid}) | Dosya: {$safeFilename} | Boyut: {$actualFileSize} bytes | Proxy: {$proxyLabel}");
                         break;
                     }
                 } catch (\Throwable $e) {
                     if ($e->getMessage() === 'DOWNLOAD_CANCELLED_BY_USER' || str_contains($e->getMessage(), 'DOWNLOAD_CANCELLED_BY_USER')) {
-                        Log::info("[INDIRME_IPTAL] Kullanıcı isteği ile bağlantı kesildi ve geçici dosyalar silindi (UUID: {$downloadUuid})");
                         if (file_exists($fullStoragePath)) {
                             @unlink($fullStoragePath);
                         }

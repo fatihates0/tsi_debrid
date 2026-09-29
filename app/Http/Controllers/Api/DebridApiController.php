@@ -39,7 +39,7 @@ class DebridApiController extends Controller
     }
 
     /**
-     * Create/Request a Debrid Proxy Download
+     * Create/Request a Debrid Download
      */
     public function store(Request $request): JsonResponse
     {
