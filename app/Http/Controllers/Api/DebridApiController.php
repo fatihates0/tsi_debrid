@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Jobs\ProcessDebridDownloadJob;
 use App\Models\DebridDownload;
 use App\Services\RealDebridService;
+use App\Services\XenForoAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -50,11 +52,27 @@ class DebridApiController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        $user = $request->user() ?? auth()->user();
+        if ($user) {
+            /** @var XenForoAuthService $authService */
+            $authService = app(XenForoAuthService::class);
+            if (! $authService->checkUserGroupPermission($user)) {
+                Auth::logout();
+                $request->session()->invalidate();
+                $request->session()->regenerateToken();
+
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Üyelik grubunuz bu işlemi gerçekleştirmek için yetkilendirilmemiştir. Oturumunuz kapatıldı.',
+                ], 403);
+            }
+        }
+
         $request->validate([
             'link' => 'required|url',
         ]);
 
-        $userId = $request->user()?->id;
+        $userId = $user?->id;
         $link = trim($request->input('link'));
         $linkHash = md5($link);
 

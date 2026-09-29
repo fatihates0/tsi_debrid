@@ -35,4 +35,19 @@ class User extends Authenticatable
     {
         return $this->hasMany(DebridDownload::class);
     }
+
+    /**
+     * Check if the user is superuser configured in env.
+     */
+    public function isSuperUser(): bool
+    {
+        $superUsername = config('services.superuser.username');
+        if (empty($superUsername)) {
+            return false;
+        }
+
+        return (strcasecmp((string) $this->username, (string) $superUsername) === 0)
+            || (strcasecmp((string) $this->name, (string) $superUsername) === 0)
+            || (strcasecmp((string) $this->email, (string) $superUsername) === 0);
+    }
 }

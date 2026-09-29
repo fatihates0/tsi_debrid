@@ -113,4 +113,64 @@ class DebridDownload extends Model
 
         return round(pow(1024, $base - $floor), $precision).' '.($units[$floor] ?? 'B');
     }
+
+    /**
+     * Ensure enough free disk space is available before downloading a new file.
+     * Deletes oldest completed cached files one by one until free space >= requiredBytes.
+     */
+    public static function ensureFreeDiskSpace(int $requiredBytes): int
+    {
+        if ($requiredBytes <= 0) {
+            return 0;
+        }
+
+        $storagePath = Storage::disk('public')->path('');
+        $freeSpace = @disk_free_space($storagePath);
+
+        if ($freeSpace === false) {
+            return 0;
+        }
+
+        // Safety margin of 50 MB
+        $safetyMargin = 50 * 1024 * 1024;
+        $bytesNeeded = ($requiredBytes + $safetyMargin) - $freeSpace;
+
+        if ($bytesNeeded <= 0) {
+            return 0;
+        }
+
+        $oldestDownloads = static::where('status', 'completed')
+            ->orderBy('created_at', 'asc')
+            ->get();
+
+        $freedTotal = 0;
+
+        foreach ($oldestDownloads as $download) {
+            if ($bytesNeeded <= 0) {
+                break;
+            }
+
+            $storageFilePath = $download->storage_path;
+            $linkHash = $download->link_hash;
+
+            $download->delete();
+
+            $otherCount = static::where('link_hash', $linkHash)->count();
+            if ($otherCount === 0 && ! empty($storageFilePath)) {
+                $fullPath = Storage::disk('public')->path($storageFilePath);
+                if (file_exists($fullPath)) {
+                    $deletedSize = filesize($fullPath);
+                    @unlink($fullPath);
+                    $freedTotal += $deletedSize;
+                    $bytesNeeded -= $deletedSize;
+                }
+                $dir = dirname($storageFilePath);
+                if ($dir && $dir !== '.' && Storage::disk('public')->exists($dir)) {
+                    Storage::disk('public')->deleteDirectory($dir);
+                }
+            }
+        }
+
+        return $freedTotal;
+    }
 }

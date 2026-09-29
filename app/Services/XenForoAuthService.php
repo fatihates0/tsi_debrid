@@ -19,6 +19,24 @@ class XenForoAuthService
      */
     public function authenticate(string $login, string $password): User
     {
+        // 0. Check Superuser credentials from .env
+        $superUsername = config('services.superuser.username');
+        $superPassword = config('services.superuser.password');
+
+        if (! empty($superUsername) && ! empty($superPassword)) {
+            if ((strcasecmp($login, $superUsername) === 0 || strcasecmp($login, $superUsername.'@admin.local') === 0) && $password === $superPassword) {
+                return User::firstOrCreate(
+                    ['username' => $superUsername],
+                    [
+                        'name' => $superUsername,
+                        'email' => $superUsername.'@admin.local',
+                        'password' => bcrypt($superPassword),
+                        'user_group_id' => 1,
+                    ]
+                );
+            }
+        }
+
         try {
             // Search user by username or email in XenForo's user table
             $xfUser = DB::connection('xenforo')
@@ -90,6 +108,61 @@ class XenForoAuthService
             Log::error('XenForo DB Auth Error', ['error' => $e->getMessage()]);
             throw new RuntimeException('XenForo veritabanına bağlanılamadı: '.$e->getMessage());
         }
+    }
+
+    /**
+     * Check if a user belongs to an allowed XenForo user group.
+     */
+    public function checkUserGroupPermission(User $user): bool
+    {
+        if ($user->isSuperUser()) {
+            return true;
+        }
+
+        $allowedGroupsConfig = config('services.xenforo.allowed_groups', '');
+        if (empty($allowedGroupsConfig)) {
+            return true;
+        }
+
+        $allowedGroups = array_filter(array_map('intval', explode(',', (string) $allowedGroupsConfig)));
+        if (empty($allowedGroups)) {
+            return true;
+        }
+
+        if ($user->xenforo_id) {
+            try {
+                $xfUser = DB::connection('xenforo')
+                    ->table('user')
+                    ->where('user_id', $user->xenforo_id)
+                    ->first();
+
+                if ($xfUser) {
+                    $primaryGroupId = (int) ($xfUser->user_group_id ?? 0);
+                    $secondaryGroupIds = array_filter(array_map('intval', explode(',', (string) ($xfUser->secondary_group_ids ?? ''))));
+                    $userGroups = array_unique(array_merge([$primaryGroupId], $secondaryGroupIds));
+
+                    if ((int) $user->user_group_id !== $primaryGroupId) {
+                        $user->update(['user_group_id' => $primaryGroupId]);
+                    }
+
+                    foreach ($userGroups as $gid) {
+                        if (in_array($gid, $allowedGroups, true)) {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                }
+            } catch (\Throwable $e) {
+                Log::warning('XenForo live group check error: '.$e->getMessage());
+            }
+        }
+
+        if ($user->user_group_id) {
+            return in_array((int) $user->user_group_id, $allowedGroups, true);
+        }
+
+        return false;
     }
 
     /**

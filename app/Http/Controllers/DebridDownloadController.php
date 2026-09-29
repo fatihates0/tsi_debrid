@@ -4,8 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Jobs\ProcessDebridDownloadJob;
 use App\Models\DebridDownload;
+use App\Models\User;
 use App\Services\RealDebridService;
+use App\Services\XenForoAuthService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -26,17 +29,20 @@ class DebridDownloadController extends Controller
      */
     public function index()
     {
-        $userId = auth()->id();
-        $query = DebridDownload::query();
-        if ($userId) {
-            $query->where('user_id', $userId);
+        /** @var User|null $user */
+        $user = auth()->user();
+        $isSuperUser = $user?->isSuperUser() ?? false;
+
+        $query = DebridDownload::with('user');
+        if (! $isSuperUser && $user) {
+            $query->where('user_id', $user->id);
         }
 
         $downloads = $query->orderBy('created_at', 'desc')->paginate(15);
 
         $statsQuery = DebridDownload::query();
-        if ($userId) {
-            $statsQuery->where('user_id', $userId);
+        if (! $isSuperUser && $user) {
+            $statsQuery->where('user_id', $user->id);
         }
 
         $stats = [
@@ -44,16 +50,64 @@ class DebridDownloadController extends Controller
             'completed_downloads' => (clone $statsQuery)->where('status', 'completed')->count(),
             'total_bytes_cached' => (clone $statsQuery)->where('status', 'completed')->sum('filesize'),
             'total_saved_rd_requests' => (clone $statsQuery)->where('status', 'completed')->sum('download_count'),
+            'active_connections' => (clone $statsQuery)->whereIn('status', ['pending', 'unrestricting', 'downloading'])->count(),
         ];
 
-        return view('dashboard', compact('downloads', 'stats'));
+        $userStats = [];
+        if ($isSuperUser) {
+            $allUsers = User::withCount([
+                'debridDownloads as total_cached' => function ($q) {
+                    $q->where('status', 'completed');
+                },
+                'debridDownloads as active_downloads' => function ($q) {
+                    $q->whereIn('status', ['pending', 'unrestricting', 'downloading']);
+                },
+            ])->get();
+
+            foreach ($allUsers as $u) {
+                $userStats[] = [
+                    'id' => $u->id,
+                    'name' => $u->name,
+                    'email' => $u->email,
+                    'avatar_url' => $u->avatar_url,
+                    'total_cached' => $u->total_cached,
+                    'active_downloads' => $u->active_downloads,
+                    'total_bytes' => $u->debridDownloads()->where('status', 'completed')->sum('filesize'),
+                    'last_ip' => $u->debridDownloads()->latest()->value('user_ip') ?? 'N/A',
+                ];
+            }
+        }
+
+        return view('dashboard', compact('downloads', 'stats', 'isSuperUser', 'userStats'));
     }
 
     /**
      * Store / Submit Link for Proxy Caching
      */
-    public function store(Request $request)
+    public function store(Request $request, XenForoAuthService $authService)
     {
+        /** @var User|null $user */
+        $user = auth()->user();
+
+        // 1. Check user group permission - logout immediately if group is restricted
+        if ($user && ! $authService->checkUserGroupPermission($user)) {
+            Auth::logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            if ($request->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Üyelik grubunuz bu işlemi gerçekleştirmek için yetkilendirilmemiştir. Oturumunuz kapatıldı.',
+                    'redirect' => route('login'),
+                ], 403);
+            }
+
+            return redirect()->route('login')->withErrors([
+                'login' => 'Üyelik grubunuz yetkili olmadığı için oturumunuz kapatıldı.',
+            ]);
+        }
+
         $request->validate([
             'link' => 'required|url',
         ], [
@@ -61,7 +115,7 @@ class DebridDownloadController extends Controller
             'link.url' => 'Geçerli bir URL formatı olmalıdır.',
         ]);
 
-        $userId = auth()->id();
+        $userId = $user?->id;
         $originalLink = trim($request->input('link'));
         $linkHash = md5($originalLink);
 
@@ -146,7 +200,7 @@ class DebridDownloadController extends Controller
                 ]);
             }
 
-            return redirect()->route('dashboard')->with('info', '⌛ Aktif indirme hesabınıza eklendi, tamamlandığında hazır olacaktır.');
+            return redirect()->route('dashboard')->with('info', '⌛ Aktif indirme hesabınıza eklendi, tamamlandığında hazıracaktır.');
         }
 
         // 3. New link submission -> Create download record for this user & dispatch Job
@@ -185,11 +239,14 @@ class DebridDownloadController extends Controller
      */
     public function show(string $uuid)
     {
-        $userId = auth()->id();
+        /** @var User|null $user */
+        $user = auth()->user();
+        $isSuperUser = $user?->isSuperUser() ?? false;
+
         $query = DebridDownload::where('uuid', $uuid);
-        if ($userId) {
-            $query->where(function ($q) use ($userId) {
-                $q->where('user_id', $userId)->orWhereNull('user_id');
+        if (! $isSuperUser && $user) {
+            $query->where(function ($q) use ($user) {
+                $q->where('user_id', $user->id)->orWhereNull('user_id');
             });
         }
         $download = $query->firstOrFail();
@@ -205,16 +262,24 @@ class DebridDownloadController extends Controller
      */
     public function listAjax()
     {
-        $userId = auth()->id();
-        $query = DebridDownload::query();
-        if ($userId) {
-            $query->where('user_id', $userId);
+        /** @var User|null $user */
+        $user = auth()->user();
+        $isSuperUser = $user?->isSuperUser() ?? false;
+
+        $query = DebridDownload::with('user');
+        if (! $isSuperUser && $user) {
+            $query->where('user_id', $user->id);
         }
 
-        $downloads = $query->orderBy('created_at', 'desc')->limit(30)->get();
+        $downloads = $query->orderBy('created_at', 'desc')->limit(50)->get();
+
+        if (! $isSuperUser) {
+            $downloads->makeHidden(['user_ip']);
+        }
 
         return response()->json([
             'success' => true,
+            'is_superuser' => $isSuperUser,
             'data' => $downloads,
         ]);
     }
@@ -325,10 +390,13 @@ class DebridDownloadController extends Controller
      */
     public function destroy(string $uuid)
     {
-        $userId = auth()->id();
+        /** @var User|null $user */
+        $user = auth()->user();
+        $isSuperUser = $user?->isSuperUser() ?? false;
+
         $query = DebridDownload::where('uuid', $uuid);
-        if ($userId) {
-            $query->where('user_id', $userId);
+        if (! $isSuperUser && $user) {
+            $query->where('user_id', $user->id);
         }
         $download = $query->firstOrFail();
 
@@ -380,5 +448,58 @@ class DebridDownloadController extends Controller
         $info = $this->rdService->getUserInfo();
 
         return response()->json($info);
+    }
+
+    /**
+     * Cron endpoint to clean cached files older than 7 days.
+     */
+    public function cleanExpiredCache(Request $request)
+    {
+        $cronSecret = config('services.cron.secret');
+        if (! empty($cronSecret)) {
+            $providedKey = $request->query('key') ?: $request->input('key') ?: $request->header('X-Cron-Key');
+            if ($providedKey !== $cronSecret) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Yetkisiz cron erişimi (Geçersiz Cron Key).',
+                ], 403);
+            }
+        }
+
+        $cutoffDate = now()->subDays(7);
+        $expiredDownloads = DebridDownload::where('created_at', '<', $cutoffDate)->get();
+
+        $deletedCount = 0;
+        $freedBytes = 0;
+
+        foreach ($expiredDownloads as $download) {
+            $storagePath = $download->storage_path;
+            $linkHash = $download->link_hash;
+            $fileSize = $download->filesize ?? 0;
+
+            $download->delete();
+            $deletedCount++;
+            $freedBytes += $fileSize;
+
+            $otherCount = DebridDownload::where('link_hash', $linkHash)->count();
+            if ($otherCount === 0 && ! empty($storagePath)) {
+                $fullPath = Storage::disk('public')->path($storagePath);
+                if (file_exists($fullPath)) {
+                    @unlink($fullPath);
+                }
+                $dir = dirname($storagePath);
+                if ($dir && $dir !== '.' && Storage::disk('public')->exists($dir)) {
+                    Storage::disk('public')->deleteDirectory($dir);
+                }
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => "7 günden eski {$deletedCount} adet önbellek kaydı ve dosyası silindi.",
+            'deleted_count' => $deletedCount,
+            'freed_bytes' => $freedBytes,
+            'freed_formatted' => formatBytes($freedBytes),
+        ]);
     }
 }

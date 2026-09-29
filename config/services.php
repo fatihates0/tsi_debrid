@@ -49,4 +49,13 @@ return [
         'verify_ssl' => env('XENFORO_VERIFY_SSL', true),
     ],
 
+    'superuser' => [
+        'username' => env('SUPERUSER_USERNAME', 'admin'),
+        'password' => env('SUPERUSER_PASSWORD', ''),
+    ],
+
+    'cron' => [
+        'secret' => env('CRON_SECRET', ''),
+    ],
+
 ];

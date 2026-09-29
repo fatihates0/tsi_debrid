@@ -27,3 +27,7 @@ Route::middleware('auth')->group(function () {
 // Direct Download & Stream Endpoints (accessible for IDM / Download managers)
 Route::match(['get', 'head'], '/dl/{uuid}', [DebridDownloadController::class, 'downloadFile'])->name('downloads.file');
 Route::match(['get', 'head'], '/api/indir/{link?}', [DebridApiController::class, 'directDownload'])->where('link', '.*')->name('api.indir');
+
+// Cron Job Endpoint for 7-day cache cleanup
+Route::match(['get', 'post'], '/cron/clean-cache', [DebridDownloadController::class, 'cleanExpiredCache'])->name('cron.clean_cache');
+Route::match(['get', 'post'], '/api/cron/clean-cache', [DebridDownloadController::class, 'cleanExpiredCache'])->name('cron.api_clean_cache');

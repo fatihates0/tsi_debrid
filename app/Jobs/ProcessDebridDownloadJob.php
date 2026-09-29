@@ -101,7 +101,12 @@ class ProcessDebridDownloadJob implements ShouldQueue
             $fullStoragePath = Storage::disk('public')->path($relativeFilePath);
 
             $debridUrl = $download->debrid_link;
-            $totalSize = $download->filesize;
+            $totalSize = (int) ($download->filesize ?? 0);
+
+            // Ensure sufficient free disk space exists before starting download
+            if ($totalSize > 0) {
+                DebridDownload::ensureFreeDiskSpace($totalSize);
+            }
 
             $lastUpdate = time();
             $downloadedSoFar = 0;

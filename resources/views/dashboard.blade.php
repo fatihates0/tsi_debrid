@@ -98,12 +98,14 @@
                                 <i class="fa-solid fa-spinner animate-spin text-indigo-400"></i> RD Hesabı
                                 Sorgulanıyor...
                             </div>
-                            <div class="text-[11px] font-mono text-slate-400 flex items-center gap-1.5 pr-1">
-                                <i class="fa-solid fa-network-wired text-[10px] text-indigo-400"></i>
-                                <span>Denenen IP:</span>
-                                <span class="font-bold text-slate-300"
-                                    x-text="rdInfo.active_proxy || 'Doğrudan'"></span>
-                            </div>
+                            @if(!empty($isSuperUser) && $isSuperUser)
+                                <div class="text-[11px] font-mono text-slate-400 flex items-center gap-1.5 pr-1">
+                                    <i class="fa-solid fa-network-wired text-[10px] text-indigo-400"></i>
+                                    <span>Denenen IP:</span>
+                                    <span class="font-bold text-slate-300"
+                                        x-text="rdInfo.active_proxy || 'Doğrudan'"></span>
+                                </div>
+                            @endif
                         </div>
                     </template>
 
@@ -111,28 +113,20 @@
                         <div class="flex flex-col items-end gap-1">
                             <div
                                 class="flex items-center gap-3 glass-card px-3.5 py-1.5 rounded-xl border border-indigo-500/20">
-                                <!--<div class="flex items-center gap-2">
-                                    <span class="relative flex h-2.5 w-2.5">
-                                        <span
-                                            class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                        <span
-                                            class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                                    </span>
-                                    <span class="text-xs font-semibold text-slate-200"
-                                        x-text="rdInfo.data.username"></span>
-                                </div>-->
                                 <span class="h-3 w-px bg-slate-700"></span>
                                 <div class="text-xs text-indigo-300 font-medium flex items-center gap-1.5">
                                     <i class="fa-solid fa-crown text-amber-400"></i>
                                     <span x-text="rdInfo.data.type === 'premium' ? 'Premium Aktif' : 'Free'"></span>
                                 </div>
                             </div>
-                            <div class="text-[11px] font-mono text-indigo-300/90 flex items-center gap-1.5 pr-1">
-                                <i class="fa-solid fa-network-wired text-[10px] text-indigo-400"></i>
-                                <span>Aktif IP:</span>
-                                <span class="font-bold text-white"
-                                    x-text="rdInfo.active_proxy || rdInfo.data.active_proxy || 'Doğrudan'"></span>
-                            </div>
+                            @if(!empty($isSuperUser) && $isSuperUser)
+                                <div class="text-[11px] font-mono text-indigo-300/90 flex items-center gap-1.5 pr-1">
+                                    <i class="fa-solid fa-network-wired text-[10px] text-indigo-400"></i>
+                                    <span>Aktif IP:</span>
+                                    <span class="font-bold text-white"
+                                        x-text="rdInfo.active_proxy || rdInfo.data.active_proxy || 'Doğrudan'"></span>
+                                </div>
+                            @endif
                         </div>
                     </template>
 
@@ -143,12 +137,14 @@
                                 <i class="fa-solid fa-circle-exclamation"></i>
                                 <span x-text="rdInfo.message || 'RD Bağlantı Hatası (.env)'"></span>
                             </div>
-                            <div class="text-[11px] font-mono text-amber-400/90 flex items-center gap-1.5 pr-1">
-                                <i class="fa-solid fa-network-wired text-[10px] text-amber-400"></i>
-                                <span>Denenen IP:</span>
-                                <span class="font-bold text-amber-200"
-                                    x-text="rdInfo.active_proxy || 'Doğrudan'"></span>
-                            </div>
+                            @if(!empty($isSuperUser) && $isSuperUser)
+                                <div class="text-[11px] font-mono text-amber-400/90 flex items-center gap-1.5 pr-1">
+                                    <i class="fa-solid fa-network-wired text-[10px] text-amber-400"></i>
+                                    <span>Denenen IP:</span>
+                                    <span class="font-bold text-amber-200"
+                                        x-text="rdInfo.active_proxy || 'Doğrudan'"></span>
+                                </div>
+                            @endif
                         </div>
                     </template>
                 </div>
@@ -156,6 +152,11 @@
                 @auth
                     <!-- XENFORO USER PROFILE & LOGOUT -->
                     <div class="flex items-center gap-3 pl-3 border-l border-slate-800">
+                        @if(!empty($isSuperUser) && $isSuperUser)
+                            <div class="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center gap-1.5">
+                                <i class="fa-solid fa-shield-halved text-amber-400"></i> SUPERUSER
+                            </div>
+                        @endif
                         <div class="flex items-center gap-2">
                             @if(Auth::user()->avatar_url)
                                 <img src="{{ Auth::user()->avatar_url }}" alt="{{ Auth::user()->name }}"
@@ -168,7 +169,13 @@
                             @endif
                             <div class="hidden sm:flex flex-col">
                                 <span class="text-xs font-bold text-white leading-tight">{{ Auth::user()->name }}</span>
-                                <span class="text-[10px] text-indigo-400 font-medium">turkcesesindir.com</span>
+                                <span class="text-[10px] text-indigo-400 font-medium">
+                                    @if(!empty($isSuperUser) && $isSuperUser)
+                                        Süper Yönetici
+                                    @else
+                                        turkcesesindir.com
+                                    @endif
+                                </span>
                             </div>
                         </div>
                         <form method="POST" action="{{ route('logout') }}">
@@ -298,6 +305,82 @@
                 </div>
             </div>
 
+            @if(!empty($isSuperUser) && $isSuperUser)
+                <!-- SUPERUSER USER STATISTICS & MONITORING PANEL -->
+                <div class="glass-card rounded-2xl p-6 border border-amber-500/30 space-y-6">
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                                <i class="fa-solid fa-users-gear text-lg"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-base font-bold text-white flex items-center gap-2">
+                                    <span>Superuser Yönetim Paneli</span>
+                                    <span class="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">Canlı İstatistikler</span>
+                                </h3>
+                                <p class="text-xs text-slate-400">Tüm kullanıcıların önbellekleme durumları, aktif IP adresleri ve bağlantıları</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- USER STATS TABLE -->
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm text-slate-300">
+                            <thead class="bg-slate-900/90 text-xs uppercase text-slate-400 font-semibold border-b border-slate-800">
+                                <tr>
+                                    <th class="px-4 py-3">Kullanıcı</th>
+                                    <th class="px-4 py-3 text-center">Önbelleklenen Dosya</th>
+                                    <th class="px-4 py-3 text-center">Toplam Boyut</th>
+                                    <th class="px-4 py-3 text-center">Aktif Bağlantı</th>
+                                    <th class="px-4 py-3 text-right">Aktif IP</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-800/60">
+                                @forelse($userStats as $uStat)
+                                    <tr class="hover:bg-slate-900/40">
+                                        <td class="px-4 py-3 font-semibold text-white flex items-center gap-2">
+                                            @if(!empty($uStat['avatar_url']))
+                                                <img src="{{ $uStat['avatar_url'] }}" class="w-6 h-6 rounded-full border border-indigo-500/30 object-cover">
+                                            @else
+                                                <div class="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-[10px] text-slate-300 font-bold border border-slate-700">
+                                                    {{ strtoupper(substr($uStat['name'] ?? 'U', 0, 1)) }}
+                                                </div>
+                                            @endif
+                                            <span>{{ $uStat['name'] }}</span>
+                                            <span class="text-xs text-slate-500 font-mono">({{ $uStat['email'] }})</span>
+                                        </td>
+                                        <td class="px-4 py-3 text-center font-mono text-emerald-400 font-bold">
+                                            {{ $uStat['total_cached'] }}
+                                        </td>
+                                        <td class="px-4 py-3 text-center font-mono text-sky-400">
+                                            {{ formatBytes($uStat['total_bytes']) }}
+                                        </td>
+                                        <td class="px-4 py-3 text-center">
+                                            @if($uStat['active_downloads'] > 0)
+                                                <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                                    {{ $uStat['active_downloads'] }} Aktif
+                                                </span>
+                                            @else
+                                                <span class="text-xs text-slate-500">Yok</span>
+                                            @endif
+                                        </td>
+                                        <td class="px-4 py-3 text-right font-mono text-xs text-amber-300 font-bold">
+                                            {{ $uStat['last_ip'] }}
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="5" class="px-4 py-6 text-center text-slate-500 text-xs">
+                                            Kullanıcı verisi bulunamadı.
+                                        </td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            @endif
+
             <!-- ACTIVE & CACHED DOWNLOADS TABLE CONTAINER -->
             <div class="glass-card rounded-2xl overflow-hidden border border-slate-800">
                 <div class="p-5 border-b border-slate-800/80 flex items-center justify-between flex-wrap gap-4">
@@ -321,6 +404,12 @@
                             class="bg-slate-900/80 text-xs uppercase text-slate-400 font-semibold border-b border-slate-800">
                             <tr>
                                 <th class="px-5 py-3.5">Dosya Adı & Link</th>
+                                <template x-if="isSuperUser">
+                                    <th class="px-5 py-3.5">Kullanıcı</th>
+                                </template>
+                                <template x-if="isSuperUser">
+                                    <th class="px-5 py-3.5">Aktif IP</th>
+                                </template>
                                 <th class="px-5 py-3.5">Boyut</th>
                                 <th class="px-5 py-3.5">Durum & İlerleme</th>
                                 <th class="px-5 py-3.5 text-center">İndirme Sayısı</th>
@@ -338,10 +427,25 @@
                                             <span x-text="item.filename || 'Dönüştürülüyor...'"></span>
                                         </div>
                                         <div class="text-xs text-slate-400 truncate mt-1" :title="item.original_link">
-                                            <span class="text-slate-500 font-mono">Mega:</span> <span
+                                            <span class="text-slate-500 font-mono">Link:</span> <span
                                                 x-text="item.original_link"></span>
                                         </div>
                                     </td>
+
+                                    <!-- SUPERUSER ONLY: USER & IP COLUMNS -->
+                                    <template x-if="isSuperUser">
+                                        <td class="px-5 py-4 text-xs font-semibold text-amber-300 whitespace-nowrap">
+                                            <div class="flex items-center gap-1.5">
+                                                <i class="fa-solid fa-user text-[10px]"></i>
+                                                <span x-text="item.user?.name || 'Sistem / Superuser'"></span>
+                                            </div>
+                                        </td>
+                                    </template>
+                                    <template x-if="isSuperUser">
+                                        <td class="px-5 py-4 text-xs font-mono text-amber-400 font-bold whitespace-nowrap">
+                                            <span x-text="item.user_ip || 'N/A'"></span>
+                                        </td>
+                                    </template>
 
                                     <!-- FILESIZE -->
                                     <td class="px-5 py-4 text-xs font-mono text-slate-300 whitespace-nowrap">
@@ -493,6 +597,7 @@
                 isSubmitting: false,
                 downloadsList: [],
                 isRefreshing: false,
+                isSuperUser: {{ !empty($isSuperUser) && $isSuperUser ? 'true' : 'false' }},
                 rdInfo: {
                     loading: true,
                     success: false,
@@ -593,6 +698,13 @@
                             body: JSON.stringify({ link })
                         });
                         const json = await res.json();
+
+                        if (res.status === 403 || json?.redirect) {
+                            alert(json?.message || 'Üyelik grubunuz yetkili olmadığı için oturumunuz kapatıldı.');
+                            window.location.href = json?.redirect || '/login';
+                            return;
+                        }
+
                         if (json && json.success) {
                             this.inputUrl = '';
                             this.fetchDownloads(true);
