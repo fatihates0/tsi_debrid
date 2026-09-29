@@ -106,10 +106,16 @@ class RealDebridService
     public static function clearUserInfoCache(): void
     {
         Cache::forget('last_working_rd_proxy');
+        Cache::forget('rd_direct_ip_blocked');
+
+        $proxies = self::getProxyList();
+        foreach ($proxies as $p) {
+            Cache::forget('rd_proxy_blocked_'.md5($p));
+        }
 
         $txtPath = public_path('proxies.txt');
         $mtime = file_exists($txtPath) ? filemtime($txtPath) : 0;
-        $proxyHash = md5(json_encode(self::getProxyList()).'_'.$mtime);
+        $proxyHash = md5(json_encode($proxies).'_'.$mtime);
         Cache::forget('rd_user_info_'.$proxyHash);
     }
 
@@ -125,13 +131,11 @@ class RealDebridService
 
         $candidates = [];
 
-        // 1. Prioritize last verified working proxy ONLY IF it still exists in the active proxy list and is not blocked
+        // 1. Prioritize last verified working proxy if valid & not blocked
         $workingProxy = Cache::get('last_working_rd_proxy');
-        if ($workingProxy) {
-            if (in_array($workingProxy, $proxies, true) && ! Cache::has('rd_proxy_blocked_'.md5($workingProxy))) {
+        if ($workingProxy && in_array($workingProxy, $proxies, true)) {
+            if (! Cache::has('rd_proxy_blocked_'.md5($workingProxy))) {
                 $candidates[] = $workingProxy;
-            } else {
-                Cache::forget('last_working_rd_proxy');
             }
         }
 
@@ -148,12 +152,16 @@ class RealDebridService
             }
         }
 
-        // 3. Fallback to direct connection only if server IP is not known to be blocked
-        if (! Cache::has('rd_direct_ip_blocked')) {
-            $candidates[] = null;
+        // 3. If ALL proxies were blocked, reset block flags and retry all configured proxies
+        if (empty($candidates)) {
+            foreach ($proxies as $p) {
+                Cache::forget('rd_proxy_blocked_'.md5($p));
+            }
+
+            return $proxies;
         }
 
-        return ! empty($candidates) ? $candidates : [null];
+        return $candidates;
     }
 
     /**
@@ -246,7 +254,7 @@ class RealDebridService
                     if ($isIpBlocked || $response->status() === 403) {
                         Cache::forget('last_working_rd_proxy');
                         if ($proxy) {
-                            Cache::put('rd_proxy_blocked_'.md5($proxy), true, now()->addHours(1));
+                            Cache::put('rd_proxy_blocked_'.md5($proxy), true, now()->addSeconds(30));
                         } else {
                             Cache::put('rd_direct_ip_blocked', true, now()->addHours(6));
                         }
@@ -270,7 +278,7 @@ class RealDebridService
                 } catch (\Throwable $e) {
                     if ($proxy) {
                         Cache::forget('last_working_rd_proxy');
-                        Cache::put('rd_proxy_blocked_'.md5($proxy), true, now()->addMinutes(15));
+                        Cache::put('rd_proxy_blocked_'.md5($proxy), true, now()->addSeconds(30));
                     }
                     $lastError = 'Bağlantı hatası: '.$e->getMessage();
                     Log::warning('Proxy '.($proxy ?: 'Direct').' getUserInfo exception: '.$e->getMessage().'. Retrying with next proxy...');
@@ -361,7 +369,7 @@ class RealDebridService
                 if ($isIpBlocked || $response->status() === 403) {
                     Cache::forget('last_working_rd_proxy');
                     if ($proxy) {
-                        Cache::put('rd_proxy_blocked_'.md5($proxy), true, now()->addHours(1));
+                        Cache::put('rd_proxy_blocked_'.md5($proxy), true, now()->addSeconds(30));
                     } else {
                         Cache::put('rd_direct_ip_blocked', true, now()->addHours(6));
                     }
@@ -384,7 +392,7 @@ class RealDebridService
             } catch (\Throwable $e) {
                 if ($proxy) {
                     Cache::forget('last_working_rd_proxy');
-                    Cache::put('rd_proxy_blocked_'.md5($proxy), true, now()->addMinutes(15));
+                    Cache::put('rd_proxy_blocked_'.md5($proxy), true, now()->addSeconds(30));
                 }
                 $lastError = 'İstek hatası: '.$e->getMessage();
                 Log::warning('Proxy '.($proxy ?: 'Direct').' unrestrictLink exception: '.$e->getMessage().'. Retrying with next proxy...');
