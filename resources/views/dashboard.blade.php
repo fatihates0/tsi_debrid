@@ -113,7 +113,6 @@
                         <div class="flex flex-col items-end gap-1">
                             <div
                                 class="flex items-center gap-3 glass-card px-3.5 py-1.5 rounded-xl border border-indigo-500/20">
-                                <span class="h-3 w-px bg-slate-700"></span>
                                 <div class="text-xs text-indigo-300 font-medium flex items-center gap-1.5">
                                     <i class="fa-solid fa-crown text-amber-400"></i>
                                     <span x-text="rdInfo.data.type === 'premium' ? 'Premium Aktif' : 'Free'"></span>
@@ -336,48 +335,69 @@
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-800/60">
-                                @forelse($userStats as $uStat)
-                                    <tr class="hover:bg-slate-900/40">
+                                <template x-for="uStat in paginatedUserStats()" :key="uStat.id">
+                                    <tr class="hover:bg-slate-900/40 transition-colors">
                                         <td class="px-4 py-3 font-semibold text-white flex items-center gap-2">
-                                            @if(!empty($uStat['avatar_url']))
-                                                <img src="{{ $uStat['avatar_url'] }}" class="w-6 h-6 rounded-full border border-indigo-500/30 object-cover">
-                                            @else
-                                                <div class="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-[10px] text-slate-300 font-bold border border-slate-700">
-                                                    {{ strtoupper(substr($uStat['name'] ?? 'U', 0, 1)) }}
+                                            <template x-if="uStat.avatar_url">
+                                                <img :src="uStat.avatar_url" class="w-6 h-6 rounded-full border border-indigo-500/30 object-cover">
+                                            </template>
+                                            <template x-if="!uStat.avatar_url">
+                                                <div class="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-[10px] text-slate-300 font-bold border border-slate-700"
+                                                     x-text="(uStat.name || 'U').charAt(0).toUpperCase()">
                                                 </div>
-                                            @endif
-                                            <span>{{ $uStat['name'] }}</span>
-                                            <span class="text-xs text-slate-500 font-mono">({{ $uStat['email'] }})</span>
+                                            </template>
+                                            <span x-text="uStat.name"></span>
+                                            <span class="text-xs text-slate-500 font-mono" x-text="'(' + uStat.email + ')'"></span>
                                         </td>
-                                        <td class="px-4 py-3 text-center font-mono text-emerald-400 font-bold">
-                                            {{ $uStat['total_cached'] }}
-                                        </td>
-                                        <td class="px-4 py-3 text-center font-mono text-sky-400">
-                                            {{ formatBytes($uStat['total_bytes']) }}
-                                        </td>
+                                        <td class="px-4 py-3 text-center font-mono text-emerald-400 font-bold" x-text="uStat.total_cached"></td>
+                                        <td class="px-4 py-3 text-center font-mono text-sky-400" x-text="formatBytesJS(uStat.total_bytes)"></td>
                                         <td class="px-4 py-3 text-center">
-                                            @if($uStat['active_downloads'] > 0)
-                                                <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                                                    {{ $uStat['active_downloads'] }} Aktif
-                                                </span>
-                                            @else
+                                            <template x-if="uStat.active_downloads > 0">
+                                                <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+                                                      x-text="uStat.active_downloads + ' Aktif'"></span>
+                                            </template>
+                                            <template x-if="!uStat.active_downloads || uStat.active_downloads <= 0">
                                                 <span class="text-xs text-slate-500">Yok</span>
-                                            @endif
+                                            </template>
                                         </td>
-                                        <td class="px-4 py-3 text-right font-mono text-xs text-amber-300 font-bold">
-                                            {{ $uStat['last_ip'] }}
-                                        </td>
+                                        <td class="px-4 py-3 text-right font-mono text-xs text-amber-300 font-bold" x-text="uStat.last_ip || 'N/A'"></td>
                                     </tr>
-                                @empty
+                                </template>
+                                <template x-if="userStatsList.length === 0">
                                     <tr>
                                         <td colspan="5" class="px-4 py-6 text-center text-slate-500 text-xs">
                                             Kullanıcı verisi bulunamadı.
                                         </td>
                                     </tr>
-                                @endforelse
+                                </template>
                             </tbody>
                         </table>
                     </div>
+
+                    <!-- USER STATS PAGINATION FOOTER -->
+                    <template x-if="userStatsList.length > userStatsPerPage">
+                        <div class="px-4 py-3 border-t border-slate-800/80 bg-slate-900/60 flex items-center justify-between flex-wrap gap-3 text-xs rounded-b-xl">
+                            <div class="text-slate-400">
+                                Toplam <span class="font-bold text-amber-300" x-text="userStatsList.length"></span> kullanıcıdan 
+                                <span class="font-bold text-slate-200" x-text="((userStatsPage - 1) * userStatsPerPage) + 1"></span> - 
+                                <span class="font-bold text-slate-200" x-text="Math.min(userStatsPage * userStatsPerPage, userStatsList.length)"></span> 
+                                arası gösteriliyor
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button @click="userStatsPage--" :disabled="userStatsPage <= 1"
+                                    class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1 font-semibold">
+                                    <i class="fa-solid fa-chevron-left text-[10px]"></i> Önceki
+                                </button>
+                                <span class="px-2 text-slate-400 font-mono text-xs">
+                                    Sayfa <span class="font-bold text-white" x-text="userStatsPage"></span> / <span x-text="totalUserStatsPages()"></span>
+                                </span>
+                                <button @click="userStatsPage++" :disabled="userStatsPage >= totalUserStatsPages()"
+                                    class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1 font-semibold">
+                                    Sonraki <i class="fa-solid fa-chevron-right text-[10px]"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </template>
                 </div>
             @endif
 
@@ -417,7 +437,7 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-800/60">
-                            <template x-for="item in downloadsList" :key="item.id">
+                            <template x-for="item in paginatedDownloadsList()" :key="item.id">
                                 <tr class="hover:bg-slate-900/40 transition-colors">
                                     <!-- FILE NAME & LINK -->
                                     <td class="px-5 py-4 max-w-xs sm:max-w-md">
@@ -557,6 +577,49 @@
                         </tbody>
                     </table>
                 </div>
+
+                <!-- DOWNLOADS LIST PAGINATION FOOTER -->
+                <template x-if="downloadsList.length > 0">
+                    <div class="px-5 py-3.5 border-t border-slate-800/80 bg-slate-900/60 flex items-center justify-between flex-wrap gap-3 text-xs">
+                        <div class="flex items-center gap-3">
+                            <div class="text-slate-400">
+                                Toplam <span class="font-bold text-indigo-400" x-text="downloadsList.length"></span> kayıttan 
+                                <span class="font-bold text-slate-200" x-text="((downloadsPage - 1) * downloadsPerPage) + 1"></span> - 
+                                <span class="font-bold text-slate-200" x-text="Math.min(downloadsPage * downloadsPerPage, downloadsList.length)"></span> 
+                                arası gösteriliyor
+                            </div>
+                            <div class="flex items-center gap-1.5 text-slate-400">
+                                <label for="perPageSelect" class="text-slate-500">Sayfa Başına:</label>
+                                <select id="perPageSelect" x-model.number="downloadsPerPage" @change="downloadsPage = 1"
+                                    class="bg-slate-800 border border-slate-700 text-slate-200 rounded-md px-2 py-1 focus:outline-none text-xs">
+                                    <option :value="5">5</option>
+                                    <option :value="10">10</option>
+                                    <option :value="15">15</option>
+                                    <option :value="25">25</option>
+                                    <option :value="50">50</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-1.5" x-show="totalDownloadsPages() > 1">
+                            <button @click="downloadsPage--" :disabled="downloadsPage <= 1"
+                                class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1 font-semibold">
+                                <i class="fa-solid fa-chevron-left text-[10px]"></i> Önceki
+                            </button>
+
+                            <template x-for="p in totalDownloadsPages()" :key="p">
+                                <button @click="downloadsPage = p"
+                                    class="w-7 h-7 rounded-lg text-xs font-semibold transition"
+                                    :class="downloadsPage === p ? 'bg-indigo-600 text-white shadow' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'"
+                                    x-text="p"></button>
+                            </template>
+
+                            <button @click="downloadsPage++" :disabled="downloadsPage >= totalDownloadsPages()"
+                                class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1 font-semibold">
+                                Sonraki <i class="fa-solid fa-chevron-right text-[10px]"></i>
+                            </button>
+                        </div>
+                    </div>
+                </template>
             </div>
 
             <!-- REST API QUICK REFERENCE CARD -->
@@ -596,13 +659,39 @@
                 inputUrl: '',
                 isSubmitting: false,
                 downloadsList: [],
+                userStatsList: @js($userStats ?? []),
                 isRefreshing: false,
                 isSuperUser: {{ !empty($isSuperUser) && $isSuperUser ? 'true' : 'false' }},
+
+                // Pagination states
+                downloadsPage: 1,
+                downloadsPerPage: 10,
+                userStatsPage: 1,
+                userStatsPerPage: 5,
+
                 rdInfo: {
                     loading: true,
                     success: false,
                     active_proxy: '{{ \App\Services\RealDebridService::getDisplayProxy(\App\Services\RealDebridService::getCandidateProxiesForApi()[0] ?? null) }}',
                     data: {}
+                },
+
+                paginatedUserStats() {
+                    const start = (this.userStatsPage - 1) * this.userStatsPerPage;
+                    return this.userStatsList.slice(start, start + this.userStatsPerPage);
+                },
+
+                totalUserStatsPages() {
+                    return Math.max(1, Math.ceil(this.userStatsList.length / this.userStatsPerPage));
+                },
+
+                paginatedDownloadsList() {
+                    const start = (this.downloadsPage - 1) * this.downloadsPerPage;
+                    return this.downloadsList.slice(start, start + this.downloadsPerPage);
+                },
+
+                totalDownloadsPages() {
+                    return Math.max(1, Math.ceil(this.downloadsList.length / this.downloadsPerPage));
                 },
 
                 initPolling() {

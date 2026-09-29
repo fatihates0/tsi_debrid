@@ -271,7 +271,7 @@ class DebridDownloadController extends Controller
             $query->where('user_id', $user->id);
         }
 
-        $downloads = $query->orderBy('created_at', 'desc')->limit(50)->get();
+        $downloads = $query->orderBy('created_at', 'desc')->limit(200)->get();
 
         if (! $isSuperUser) {
             $downloads->makeHidden(['user_ip']);
