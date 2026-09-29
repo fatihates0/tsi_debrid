@@ -41,10 +41,12 @@ class XenForoAuthService
         try {
             $response = Http::withHeaders([
                 'X-Api-Key' => $this->apiKey,
+                'API-Key' => $this->apiKey,
                 'Accept' => 'application/json',
             ])
-                ->withoutVerifying() // Flexible for dev/self-signed SSL if needed, controlled by config
-                ->post($apiUrl, [
+                ->withoutVerifying()
+                ->post($apiUrl.'?api_key='.urlencode($this->apiKey), [
+                    'api_key' => $this->apiKey,
                     'login' => $login,
                     'password' => $password,
                 ]);

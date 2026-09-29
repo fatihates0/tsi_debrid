@@ -31,7 +31,7 @@ class XenForoAuthTest extends TestCase
         config(['services.xenforo.api_key' => 'test-super-user-key']);
 
         Http::fake([
-            'https://turkcesesindir.com/api/auth/' => Http::response([
+            '*api/auth*' => Http::response([
                 'success' => true,
                 'user' => [
                     'user_id' => 101,
@@ -65,7 +65,7 @@ class XenForoAuthTest extends TestCase
         config(['services.xenforo.api_key' => 'test-super-user-key']);
 
         Http::fake([
-            'https://turkcesesindir.com/api/auth/' => Http::response([
+            '*api/auth*' => Http::response([
                 'errors' => [
                     [
                         'code' => 'incorrect_password',
