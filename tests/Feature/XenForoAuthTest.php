@@ -112,6 +112,34 @@ class XenForoAuthTest extends TestCase
         $this->assertGuest();
     }
 
+    public function test_user_group_restriction_blocks_unallowed_groups(): void
+    {
+        config(['services.xenforo.allowed_groups' => '3,4']);
+
+        $passwordHash = password_hash('secret123', PASSWORD_BCRYPT);
+        $authPayload = serialize(['hash' => $passwordHash]);
+
+        DB::connection('xenforo')->table('user')->insert([
+            'user_id' => 103,
+            'username' => 'NormalMember',
+            'email' => 'normal@turkcesesindir.com',
+            'user_group_id' => 2,
+        ]);
+
+        DB::connection('xenforo')->table('user_authenticate')->insert([
+            'user_id' => 103,
+            'data' => $authPayload,
+        ]);
+
+        $response = $this->post('/login', [
+            'login' => 'NormalMember',
+            'password' => 'secret123',
+        ]);
+
+        $response->assertSessionHasErrors('login');
+        $this->assertGuest();
+    }
+
     public function test_authenticated_user_can_logout(): void
     {
         $user = User::factory()->create([

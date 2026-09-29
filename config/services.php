@@ -43,9 +43,9 @@ return [
     ],
 
     'xenforo' => [
-        'mode' => env('XENFORO_AUTH_MODE', 'api'),
+        'mode' => env('XENFORO_AUTH_MODE', 'database'),
         'url' => env('XENFORO_URL', 'https://turkcesesindir.com'),
-        'api_key' => env('XENFORO_API_KEY', ''),
+        'allowed_groups' => env('XENFORO_ALLOWED_USER_GROUPS', ''),
         'verify_ssl' => env('XENFORO_VERIFY_SSL', true),
     ],
 

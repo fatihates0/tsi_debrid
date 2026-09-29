@@ -31,6 +31,31 @@ class XenForoAuthService
                 throw new RuntimeException('Girdiğiniz kullanıcı adı/e-posta veya şifre hatalı.');
             }
 
+            // Check allowed user groups restriction from config/env
+            $allowedGroupsConfig = config('services.xenforo.allowed_groups', '');
+            if (! empty($allowedGroupsConfig)) {
+                $allowedGroups = array_filter(array_map('intval', explode(',', (string) $allowedGroupsConfig)));
+
+                if (! empty($allowedGroups)) {
+                    $primaryGroupId = (int) ($xfUser->user_group_id ?? 0);
+                    $secondaryGroupIds = array_filter(array_map('intval', explode(',', (string) ($xfUser->secondary_group_ids ?? ''))));
+
+                    $userGroups = array_unique(array_merge([$primaryGroupId], $secondaryGroupIds));
+
+                    $hasPermission = false;
+                    foreach ($userGroups as $gid) {
+                        if (in_array($gid, $allowedGroups, true)) {
+                            $hasPermission = true;
+                            break;
+                        }
+                    }
+
+                    if (! $hasPermission) {
+                        throw new RuntimeException('Üyelik grubunuz bu sisteme giriş yapmak için yetkilendirilmemiştir.');
+                    }
+                }
+            }
+
             // Retrieve authentication hash data from user_authenticate table
             $authRecord = DB::connection('xenforo')
                 ->table('user_authenticate')
