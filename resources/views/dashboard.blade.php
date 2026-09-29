@@ -423,58 +423,58 @@
                         <thead
                             class="bg-slate-900/80 text-xs uppercase text-slate-400 font-semibold border-b border-slate-800">
                             <tr>
-                                <th class="px-5 py-3.5">Dosya Adı & Link</th>
+                                <th class="px-4 py-3.5 min-w-[160px]">Dosya Adı</th>
                                 <template x-if="isSuperUser">
-                                    <th class="px-5 py-3.5">Kullanıcı</th>
+                                    <th class="px-3 py-3.5">Kullanıcı</th>
                                 </template>
                                 <template x-if="isSuperUser">
-                                    <th class="px-5 py-3.5">Aktif IP</th>
+                                    <th class="px-3 py-3.5">Aktif IP</th>
                                 </template>
-                                <th class="px-5 py-3.5">Boyut</th>
-                                <th class="px-5 py-3.5">Durum & İlerleme</th>
-                                <th class="px-5 py-3.5 text-center">İndirme Sayısı</th>
-                                <th class="px-5 py-3.5 text-right">İşlemler</th>
+                                <th class="px-3 py-3.5">Boyut</th>
+                                <th class="px-3 py-3.5 min-w-[160px]">Durum & İlerleme</th>
+                                <th class="px-3 py-3.5 text-center whitespace-nowrap">İndirme Sayısı</th>
+                                <th class="px-4 py-3.5 text-right">İşlemler</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-800/60">
                             <template x-for="item in paginatedDownloadsList()" :key="item.id">
                                 <tr class="hover:bg-slate-900/40 transition-colors">
                                     <!-- FILE NAME & LINK -->
-                                    <td class="px-5 py-4 max-w-xs sm:max-w-md">
-                                        <div class="font-semibold text-white truncate flex items-center gap-2"
+                                    <td class="px-4 py-3.5">
+                                        <div class="font-semibold text-white flex items-center gap-2 max-w-[200px] sm:max-w-[260px] md:max-w-[340px] truncate"
                                             :title="item.filename || 'Dosya Adı Bekleniyor...'">
-                                            <i class="fa-regular fa-file-lines text-indigo-400"></i>
-                                            <span x-text="item.filename || 'Dönüştürülüyor...'"></span>
+                                            <i class="fa-regular fa-file-lines text-indigo-400 shrink-0"></i>
+                                            <span class="truncate" x-text="item.filename || 'Dönüştürülüyor...'"></span>
                                         </div>
                                     </td>
 
                                     <!-- SUPERUSER ONLY: USER & IP COLUMNS -->
                                     <template x-if="isSuperUser">
-                                        <td class="px-5 py-4 text-xs font-semibold text-amber-300 whitespace-nowrap">
-                                            <div class="flex items-center gap-1.5">
-                                                <i class="fa-solid fa-user text-[10px]"></i>
-                                                <span x-text="item.user?.name || 'Sistem / Superuser'"></span>
+                                        <td class="px-3 py-3.5 text-xs font-semibold text-amber-300 whitespace-nowrap">
+                                            <div class="flex items-center gap-1.5 truncate max-w-[120px]" :title="item.user?.name">
+                                                <i class="fa-solid fa-user text-[10px] shrink-0"></i>
+                                                <span class="truncate" x-text="item.user?.name || 'Sistem / Superuser'"></span>
                                             </div>
                                         </td>
                                     </template>
                                     <template x-if="isSuperUser">
-                                        <td class="px-5 py-4 text-xs font-mono text-amber-400 font-bold whitespace-nowrap">
+                                        <td class="px-3 py-3.5 text-xs font-mono text-amber-400 font-bold whitespace-nowrap">
                                             <span x-text="item.user_ip || 'N/A'"></span>
                                         </td>
                                     </template>
 
                                     <!-- FILESIZE -->
-                                    <td class="px-5 py-4 text-xs font-mono text-slate-300 whitespace-nowrap">
+                                    <td class="px-3 py-3.5 text-xs font-mono text-slate-300 whitespace-nowrap">
                                         <span x-text="formatBytesJS(item.filesize)"></span>
                                     </td>
 
                                     <!-- STATUS & PROGRESS -->
-                                    <td class="px-5 py-4 min-w-[200px]">
+                                    <td class="px-3 py-3.5">
                                         <!-- COMPLETED STATUS -->
                                         <template x-if="item.status === 'completed'">
                                             <div class="space-y-1">
                                                 <span
-                                                    class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                                    class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
                                                     <i class="fa-solid fa-circle-check"></i> Önbellekte Hazır
                                                 </span>
                                             </div>
@@ -483,21 +483,21 @@
                                         <!-- DOWNLOADING STATUS -->
                                         <template
                                             x-if="item.status === 'downloading' || item.status === 'unrestricting' || item.status === 'pending'">
-                                            <div class="space-y-1.5">
+                                            <div class="space-y-1.5 min-w-[140px] max-w-[180px]">
                                                 <div class="flex justify-between text-xs">
-                                                    <span class="text-indigo-400 font-medium flex items-center gap-1">
-                                                        <i class="fa-solid fa-spinner animate-spin"></i>
-                                                        <span
+                                                    <span class="text-indigo-400 font-medium flex items-center gap-1 truncate">
+                                                        <i class="fa-solid fa-spinner animate-spin shrink-0"></i>
+                                                        <span class="truncate"
                                                             x-text="item.status === 'downloading' ? 'İndiriliyor...' : 'Real-Debrid Bekleniyor'"></span>
                                                     </span>
-                                                    <span class="font-mono text-slate-300"
+                                                    <span class="font-mono text-slate-300 shrink-0 ml-1"
                                                         x-text="getProgress(item) + '%'"></span>
                                                 </div>
                                                 <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
                                                     <div class="bg-gradient-to-r from-indigo-500 to-sky-400 h-2 rounded-full transition-all duration-300"
                                                         :style="'width: ' + getProgress(item) + '%'"></div>
                                                 </div>
-                                                <div class="text-[11px] text-slate-400 font-mono"
+                                                <div class="text-[11px] text-slate-400 font-mono whitespace-nowrap"
                                                     x-text="formatBytesJS(item.downloaded_bytes) + ' / ' + formatBytesJS(item.filesize)">
                                                 </div>
                                             </div>
@@ -507,28 +507,28 @@
                                         <template x-if="item.status === 'failed'">
                                             <div>
                                                 <span
-                                                    class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                                                    class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20 whitespace-nowrap"
                                                     :title="item.error_message">
                                                     <i class="fa-solid fa-circle-xmark"></i> Hata Oluştu
                                                 </span>
-                                                <p class="text-[11px] text-rose-400/80 truncate mt-1 max-w-[180px]"
+                                                <p class="text-[11px] text-rose-400/80 truncate mt-1 max-w-[140px]"
                                                     x-text="item.error_message"></p>
                                             </div>
                                         </template>
                                     </td>
 
                                     <!-- DOWNLOAD COUNT -->
-                                    <td class="px-5 py-4 text-center text-xs font-mono font-bold text-amber-400">
+                                    <td class="px-3 py-3.5 text-center text-xs font-mono font-bold text-amber-400 whitespace-nowrap">
                                         <span x-text="item.download_count"></span> x
                                     </td>
 
                                     <!-- ACTIONS -->
-                                    <td class="px-5 py-4 text-right whitespace-nowrap">
-                                        <div class="flex items-center justify-end gap-2">
+                                    <td class="px-4 py-3.5 text-right whitespace-nowrap">
+                                        <div class="flex items-center justify-end gap-1.5">
                                             <!-- DIRECT PROXY DOWNLOAD BUTTON -->
                                             <template x-if="item.status === 'completed'">
                                                 <a :href="'/dl/' + item.uuid" target="_blank"
-                                                    class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow transition-all flex items-center gap-1.5">
+                                                    class="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow transition-all flex items-center gap-1">
                                                     <i class="fa-solid fa-download"></i> İndir
                                                 </a>
                                             </template>
