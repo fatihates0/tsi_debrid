@@ -568,7 +568,7 @@
                                                         class="text-indigo-400 font-medium flex items-center gap-1 truncate">
                                                         <i class="fa-solid fa-spinner animate-spin shrink-0"></i>
                                                         <span class="truncate"
-                                                            x-text="item.status === 'downloading' ? 'İndiriliyor...' : 'Real-Debrid Bekleniyor'"></span>
+                                                            x-text="item.status === 'downloading' ? 'Hazırlanıyor...' : 'Real-Debrid Bekleniyor'"></span>
                                                     </span>
                                                     <span class="font-mono text-slate-300 shrink-0 ml-1"
                                                         x-text="getProgress(item) + '%'"></span>

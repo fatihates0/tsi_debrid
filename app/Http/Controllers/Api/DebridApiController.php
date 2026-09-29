@@ -242,6 +242,12 @@ class DebridApiController extends Controller
             // Signal cancellation to any active background download jobs
             Cache::put("cancel_download_{$downloadUuid}", true, now()->addMinutes(10));
 
+            if (empty($storagePath)) {
+                $storagePath = DebridDownload::where('link_hash', $linkHash)
+                    ->whereNotNull('storage_path')
+                    ->value('storage_path');
+            }
+
             // Delete physical storage file and folder
             if (! empty($storagePath)) {
                 $fullPath = Storage::disk('public')->path($storagePath);
@@ -253,6 +259,9 @@ class DebridApiController extends Controller
                     Storage::disk('public')->deleteDirectory($dir);
                 }
             }
+
+            // Clean up any remaining cancelled records for this link_hash
+            DebridDownload::where('link_hash', $linkHash)->delete();
         }
 
         return response()->json([

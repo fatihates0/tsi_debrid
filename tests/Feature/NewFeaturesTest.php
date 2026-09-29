@@ -169,4 +169,54 @@ class NewFeaturesTest extends TestCase
 
         Queue::assertPushed(ProcessDebridDownloadJob::class);
     }
+
+    public function test_file_deleted_from_disk_only_when_last_user_deletes_it(): void
+    {
+        $user1 = User::factory()->create();
+        $user2 = User::factory()->create();
+
+        $link = 'https://mega.nz/file/shared#123';
+        $linkHash = md5($link);
+        $storagePath = 'downloads/shared-uuid/shared-file.bin';
+
+        // Fake physical storage file
+        Storage::disk('public')->put($storagePath, 'test file content');
+
+        $download1 = DebridDownload::create([
+            'uuid' => 'dl-user-1',
+            'user_id' => $user1->id,
+            'original_link' => $link,
+            'link_hash' => $linkHash,
+            'status' => 'completed',
+            'filesize' => 100,
+            'storage_path' => $storagePath,
+        ]);
+
+        $download2 = DebridDownload::create([
+            'uuid' => 'dl-user-2',
+            'user_id' => $user2->id,
+            'original_link' => $link,
+            'link_hash' => $linkHash,
+            'status' => 'completed',
+            'filesize' => 100,
+            'storage_path' => $storagePath,
+        ]);
+
+        // User 1 deletes their download
+        $res1 = $this->actingAs($user1)->deleteJson("/downloads/{$download1->uuid}");
+        $res1->assertStatus(200);
+
+        // Record 1 should be gone, but Record 2 and the physical file must remain
+        $this->assertDatabaseMissing('debrid_downloads', ['id' => $download1->id]);
+        $this->assertDatabaseHas('debrid_downloads', ['id' => $download2->id]);
+        Storage::disk('public')->assertExists($storagePath);
+
+        // User 2 (the last user) deletes their download
+        $res2 = $this->actingAs($user2)->deleteJson("/downloads/{$download2->uuid}");
+        $res2->assertStatus(200);
+
+        // Both records and the physical file must now be deleted from disk
+        $this->assertDatabaseMissing('debrid_downloads', ['id' => $download2->id]);
+        Storage::disk('public')->assertMissing($storagePath);
+    }
 }
