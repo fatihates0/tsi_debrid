@@ -64,9 +64,12 @@ class DebridProxyTest extends TestCase
         // Create dummy physical file in faked storage
         Storage::disk('public')->put($storagePath, 'dummy video content');
 
+        $user = auth()->user();
+
         // Pre-populate database with a completed cached record
         DebridDownload::create([
             'uuid' => 'test-uuid-1234',
+            'user_id' => $user->id,
             'original_link' => $link,
             'link_hash' => $linkHash,
             'filename' => 'cached_movie.mp4',
@@ -116,20 +119,20 @@ class DebridProxyTest extends TestCase
         ]);
 
         // 1. Full GET request
-        $response = $this->get('/dl/' . $download->uuid);
+        $response = $this->get('/dl/'.$download->uuid);
         $response->assertStatus(200);
         $response->assertHeader('Content-Length', (string) $expectedSize);
         $response->assertHeader('Accept-Ranges', 'bytes');
         $this->assertEquals($content, $response->streamedContent());
 
         // 2. HEAD request (IDM size pre-check)
-        $headResponse = $this->call('HEAD', '/dl/' . $download->uuid);
+        $headResponse = $this->call('HEAD', '/dl/'.$download->uuid);
         $headResponse->assertStatus(200);
         $headResponse->assertHeader('Content-Length', (string) $expectedSize);
         $headResponse->assertHeader('Accept-Ranges', 'bytes');
 
         // 3. IDM Range 0-0 probe (1-byte probe to check total size and range support)
-        $probeResponse = $this->get('/dl/' . $download->uuid, [
+        $probeResponse = $this->get('/dl/'.$download->uuid, [
             'Range' => 'bytes=0-0',
         ]);
         $probeResponse->assertStatus(206);
@@ -138,7 +141,7 @@ class DebridProxyTest extends TestCase
         $this->assertEquals(substr($content, 0, 1), $probeResponse->streamedContent());
 
         // 4. Partial byte range chunk request (IDM multi-threaded download)
-        $chunkResponse = $this->get('/dl/' . $download->uuid, [
+        $chunkResponse = $this->get('/dl/'.$download->uuid, [
             'Range' => 'bytes=0-9',
         ]);
         $chunkResponse->assertStatus(206);
@@ -165,15 +168,18 @@ class DebridProxyTest extends TestCase
         $storagePath = 'downloads/cancel-test-uuid/partial_movie.rar';
         Storage::disk('public')->put($storagePath, 'partial download data');
 
+        $user = auth()->user();
+
         $download = DebridDownload::create([
             'uuid' => 'cancel-test-uuid',
+            'user_id' => $user->id,
             'original_link' => 'https://mega.nz/file/testcancel#key',
             'link_hash' => md5('https://mega.nz/file/testcancel#key'),
             'status' => 'downloading',
             'storage_path' => $storagePath,
         ]);
 
-        $response = $this->deleteJson('/downloads/' . $download->uuid);
+        $response = $this->deleteJson('/downloads/'.$download->uuid);
 
         $response->assertStatus(200);
         $response->assertJson(['success' => true]);
@@ -186,5 +192,137 @@ class DebridProxyTest extends TestCase
 
         // Physical file must be deleted
         Storage::disk('public')->assertMissing($storagePath);
+    }
+
+    public function test_user_sees_only_their_own_downloads_on_dashboard_and_ajax_list()
+    {
+        $user1 = auth()->user();
+        $user2 = User::factory()->create();
+
+        $dl1 = DebridDownload::create([
+            'uuid' => 'user1-dl',
+            'user_id' => $user1->id,
+            'original_link' => 'https://mega.nz/file/user1link#key',
+            'link_hash' => md5('https://mega.nz/file/user1link#key'),
+            'filename' => 'user1_file.rar',
+            'status' => 'completed',
+        ]);
+
+        $dl2 = DebridDownload::create([
+            'uuid' => 'user2-dl',
+            'user_id' => $user2->id,
+            'original_link' => 'https://mega.nz/file/user2link#key',
+            'link_hash' => md5('https://mega.nz/file/user2link#key'),
+            'filename' => 'user2_file.rar',
+            'status' => 'completed',
+        ]);
+
+        // 1. User 1 AJAX list should only show User 1's download
+        $response1 = $this->getJson('/downloads/ajax-list');
+        $response1->assertStatus(200);
+        $response1->assertJsonCount(1, 'data');
+        $response1->assertJsonPath('data.0.uuid', 'user1-dl');
+
+        // 2. User 2 AJAX list should only show User 2's download
+        $this->actingAs($user2);
+        $response2 = $this->getJson('/downloads/ajax-list');
+        $response2->assertStatus(200);
+        $response2->assertJsonCount(1, 'data');
+        $response2->assertJsonPath('data.0.uuid', 'user2-dl');
+    }
+
+    public function test_user_submitting_existing_active_link_attaches_same_link_without_re_downloading()
+    {
+        Queue::fake();
+        Storage::fake('public');
+
+        $user1 = auth()->user();
+        $user2 = User::factory()->create();
+
+        $link = 'https://mega.nz/file/sharedfile#key';
+        $linkHash = md5($link);
+        $storagePath = 'downloads/shared-uuid/movie.mp4';
+        Storage::disk('public')->put($storagePath, 'movie content');
+
+        // User 1 already downloaded this link
+        $existing = DebridDownload::create([
+            'uuid' => 'shared-uuid',
+            'user_id' => $user1->id,
+            'original_link' => $link,
+            'link_hash' => $linkHash,
+            'debrid_link' => 'https://real-debrid.com/dl/movie.mp4',
+            'filename' => 'movie.mp4',
+            'filesize' => 5000,
+            'downloaded_bytes' => 5000,
+            'status' => 'completed',
+            'storage_path' => $storagePath,
+        ]);
+
+        // User 2 submits the exact same link
+        $this->actingAs($user2);
+        $response = $this->postJson('/downloads', ['link' => $link]);
+
+        $response->assertStatus(200);
+        $response->assertJson([
+            'success' => true,
+            'cached' => true,
+        ]);
+
+        // No new download job should be dispatched
+        Queue::assertNotPushed(ProcessDebridDownloadJob::class);
+
+        // User 2 should now have a new record attached with the same storage_path and completed status
+        $this->assertDatabaseHas('debrid_downloads', [
+            'user_id' => $user2->id,
+            'link_hash' => $linkHash,
+            'status' => 'completed',
+            'storage_path' => $storagePath,
+        ]);
+
+        $this->assertEquals(2, DebridDownload::where('link_hash', $linkHash)->count());
+    }
+
+    public function test_deleting_shared_download_removes_user_record_but_preserves_file_for_other_users()
+    {
+        Storage::fake('public');
+
+        $user1 = auth()->user();
+        $user2 = User::factory()->create();
+
+        $link = 'https://mega.nz/file/sharedfile2#key';
+        $linkHash = md5($link);
+        $storagePath = 'downloads/shared-uuid-2/file.rar';
+        Storage::disk('public')->put($storagePath, 'rar data');
+
+        $dl1 = DebridDownload::create([
+            'uuid' => 'dl-user1',
+            'user_id' => $user1->id,
+            'original_link' => $link,
+            'link_hash' => $linkHash,
+            'status' => 'completed',
+            'storage_path' => $storagePath,
+        ]);
+
+        $dl2 = DebridDownload::create([
+            'uuid' => 'dl-user2',
+            'user_id' => $user2->id,
+            'original_link' => $link,
+            'link_hash' => $linkHash,
+            'status' => 'completed',
+            'storage_path' => $storagePath,
+        ]);
+
+        // User 1 deletes their record
+        $response = $this->deleteJson('/downloads/'.$dl1->uuid);
+        $response->assertStatus(200);
+
+        // User 1 record removed
+        $this->assertDatabaseMissing('debrid_downloads', ['uuid' => 'dl-user1']);
+
+        // User 2 record still exists
+        $this->assertDatabaseHas('debrid_downloads', ['uuid' => 'dl-user2']);
+
+        // Physical file preserved because User 2 still has it!
+        Storage::disk('public')->assertExists($storagePath);
     }
 }

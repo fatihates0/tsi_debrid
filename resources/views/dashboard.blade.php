@@ -111,7 +111,7 @@
                         <div class="flex flex-col items-end gap-1">
                             <div
                                 class="flex items-center gap-3 glass-card px-3.5 py-1.5 rounded-xl border border-indigo-500/20">
-                                <div class="flex items-center gap-2">
+                                <!--<div class="flex items-center gap-2">
                                     <span class="relative flex h-2.5 w-2.5">
                                         <span
                                             class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -120,7 +120,7 @@
                                     </span>
                                     <span class="text-xs font-semibold text-slate-200"
                                         x-text="rdInfo.data.username"></span>
-                                </div>
+                                </div>-->
                                 <span class="h-3 w-px bg-slate-700"></span>
                                 <div class="text-xs text-indigo-300 font-medium flex items-center gap-1.5">
                                     <i class="fa-solid fa-crown text-amber-400"></i>
@@ -304,10 +304,8 @@
                     <div>
                         <h3 class="text-base font-bold text-white flex items-center gap-2">
                             <i class="fa-solid fa-server text-indigo-400"></i>
-                            <span>İndirmeler & Önbellek Listesi</span>
+                            <span>İndirme Listesi</span>
                         </h3>
-                        <p class="text-xs text-slate-400">Arka plan indirme durumları 2 saniyede bir otomatik
-                            güncellenir.</p>
                     </div>
                     <button @click="fetchDownloads()"
                         class="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center gap-1.5">

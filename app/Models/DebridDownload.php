@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class DebridDownload extends Model
@@ -12,6 +14,7 @@ class DebridDownload extends Model
 
     protected $fillable = [
         'uuid',
+        'user_id',
         'original_link',
         'link_hash',
         'debrid_id',
@@ -27,6 +30,11 @@ class DebridDownload extends Model
         'download_count',
         'use_remote',
     ];
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
 
     protected $casts = [
         'filesize' => 'integer',
@@ -51,7 +59,7 @@ class DebridDownload extends Model
             if (empty($model->uuid)) {
                 $model->uuid = (string) Str::uuid();
             }
-            if (!empty($model->original_link) && empty($model->link_hash)) {
+            if (! empty($model->original_link) && empty($model->link_hash)) {
                 $model->link_hash = md5(trim($model->original_link));
             }
         });
@@ -65,6 +73,7 @@ class DebridDownload extends Model
         if ($this->filesize <= 0) {
             return 0;
         }
+
         return min(100, (int) round(($this->downloaded_bytes / $this->filesize) * 100));
     }
 
@@ -83,12 +92,13 @@ class DebridDownload extends Model
         if ($this->status !== 'completed' || empty($this->filename)) {
             return null;
         }
+
         return route('downloads.file', ['uuid' => $this->uuid]);
     }
 
     public function getIsCachedAttribute(): bool
     {
-        return $this->status === 'completed' && !empty($this->storage_path) && \Illuminate\Support\Facades\Storage::disk('public')->exists($this->storage_path);
+        return $this->status === 'completed' && ! empty($this->storage_path) && Storage::disk('public')->exists($this->storage_path);
     }
 
     private function formatBytes(?int $bytes, int $precision = 2): string
@@ -100,6 +110,7 @@ class DebridDownload extends Model
         $units = ['B', 'KB', 'MB', 'GB', 'TB'];
         $base = log($bytes, 1024);
         $floor = floor($base);
-        return round(pow(1024, $base - $floor), $precision) . ' ' . ($units[$floor] ?? 'B');
+
+        return round(pow(1024, $base - $floor), $precision).' '.($units[$floor] ?? 'B');
     }
 }

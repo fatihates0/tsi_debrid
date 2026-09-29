@@ -52,9 +52,11 @@ class ProcessDebridDownloadJob implements ShouldQueue
         }
 
         try {
+            $linkHash = $download->link_hash;
+
             // Step 1: Unrestrict link if not already done
             if (empty($download->debrid_link)) {
-                $download->update(['status' => 'unrestricting']);
+                DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update(['status' => 'unrestricting']);
                 $useRemote = $download->use_remote ?? config('services.realdebrid.use_remote', true);
 
                 $unrestrictResult = $rdService->unrestrictLink($download->original_link, null, $useRemote);
@@ -62,7 +64,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
                 if (! $unrestrictResult['success']) {
                     $errMsg = $unrestrictResult['message'] ?? 'Link dönüştürülemedi.';
 
-                    $download->update([
+                    DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update([
                         'status' => 'failed',
                         'error_message' => $errMsg,
                     ]);
@@ -72,7 +74,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
 
                 $data = $unrestrictResult['data'];
 
-                $download->update([
+                DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update([
                     'debrid_id' => $data['id'] ?? null,
                     'debrid_link' => $data['download_link'],
                     'filename' => $data['filename'] ?? 'file_'.$download->uuid,
@@ -88,7 +90,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
             }
 
             // Step 2: Download file to local storage
-            $download->update(['status' => 'downloading']);
+            DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update(['status' => 'downloading']);
 
             $safeFilename = sanitize_filename($download->filename ?: 'file_'.$download->uuid);
             $relativeDir = 'downloads/'.$download->uuid;
@@ -159,6 +161,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
                         'progress' => function ($downloadTotal, $downloadedBytes) use (
                             $download,
                             $downloadUuid,
+                            $linkHash,
                             &$lastUpdate,
                             &$downloadedSoFar
                         ) {
@@ -179,7 +182,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
                                 if ($downloadTotal > 0 && $download->filesize <= 0) {
                                     $updateData['filesize'] = $downloadTotal;
                                 }
-                                $fresh->update($updateData);
+                                DebridDownload::where('link_hash', $linkHash)->where('status', 'downloading')->update($updateData);
                             }
                         },
                     ]);
@@ -190,7 +193,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
                         }
 
                         $actualFileSize = filesize($fullStoragePath);
-                        $download->update([
+                        DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update([
                             'status' => 'completed',
                             'filesize' => $actualFileSize ?: $totalSize,
                             'downloaded_bytes' => $actualFileSize ?: $totalSize,
@@ -214,6 +217,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
                     }
 
                     $lastException = $e;
+                    $proxyLabel = RealDebridService::getDisplayProxy($proxy);
                     Log::warning("[INDIRME_PROXY_HATASI] Proxy [{$proxyLabel}] başarısız (UUID: {$downloadUuid}): ".$e->getMessage().'. Sıradaki deneniyor...');
 
                     // If Real-Debrid rejected link due to IP change or expiration, re-unrestrict once
@@ -223,7 +227,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
                             $refreshResult = $rdService->unrestrictLink($download->original_link, null, $useRemote);
                             if ($refreshResult['success'] && ! empty($refreshResult['data']['download_link'])) {
                                 $debridUrl = $refreshResult['data']['download_link'];
-                                $download->update(['debrid_link' => $debridUrl]);
+                                DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update(['debrid_link' => $debridUrl]);
                             }
                         } catch (\Throwable $re) {
                             Log::debug('Failed to re-unrestrict on link error: '.$re->getMessage());
@@ -254,7 +258,7 @@ class ProcessDebridDownloadJob implements ShouldQueue
             Log::error("ProcessDebridDownloadJob Error (UUID: {$downloadUuid}): ".$e->getMessage());
             $fresh = $download->fresh();
             if ($fresh && $fresh->status !== 'cancelled') {
-                $fresh->update([
+                DebridDownload::where('link_hash', $linkHash)->where('status', '!=', 'cancelled')->update([
                     'status' => 'failed',
                     'error_message' => 'İndirme hatası: '.$e->getMessage(),
                 ]);
