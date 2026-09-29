@@ -93,4 +93,42 @@ class NewFeaturesTest extends TestCase
         $dashboardResponse->assertSee('SUPERUSER');
         $dashboardResponse->assertSee('Superuser Yönetim Paneli');
     }
+
+    public function test_superuser_can_delete_user_and_associated_downloads(): void
+    {
+        config(['services.superuser.username' => 'admin']);
+
+        $superuser = User::factory()->create([
+            'username' => 'admin',
+        ]);
+
+        $normalUser = User::factory()->create([
+            'username' => 'tobedeleted',
+        ]);
+
+        $userDownload = DebridDownload::create([
+            'uuid' => 'user-dl-789',
+            'user_id' => $normalUser->id,
+            'original_link' => 'https://mega.nz/file/del#123',
+            'link_hash' => md5('https://mega.nz/file/del#123'),
+            'status' => 'completed',
+            'filesize' => 512,
+            'storage_path' => 'downloads/user-dl-789/file.bin',
+        ]);
+
+        Storage::disk('public')->put('downloads/user-dl-789/file.bin', 'content');
+
+        // Non-superuser gets 403
+        $response1 = $this->actingAs($normalUser)->deleteJson("/users/{$normalUser->id}");
+        $response1->assertStatus(403);
+
+        // Superuser deletes user
+        $response2 = $this->actingAs($superuser)->deleteJson("/users/{$normalUser->id}");
+        $response2->assertStatus(200);
+        $response2->assertJson(['success' => true]);
+
+        $this->assertDatabaseMissing('users', ['id' => $normalUser->id]);
+        $this->assertDatabaseMissing('debrid_downloads', ['id' => $userDownload->id]);
+        Storage::disk('public')->assertMissing('downloads/user-dl-789/file.bin');
+    }
 }

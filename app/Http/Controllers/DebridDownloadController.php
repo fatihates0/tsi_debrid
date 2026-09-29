@@ -441,6 +441,85 @@ class DebridDownloadController extends Controller
     }
 
     /**
+     * Superuser endpoint to delete a user and all their associated downloads/files from DB.
+     */
+    public function deleteUser(Request $request, int $id)
+    {
+        /** @var User|null $user */
+        $user = auth()->user();
+
+        if (! $user || ! $user->isSuperUser()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Bu işlem için Superuser yetkisi gereklidir.',
+            ], 403);
+        }
+
+        if ($user->id === $id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Kendi Superuser hesabınızı silemezsiniz.',
+            ], 400);
+        }
+
+        $targetUser = User::find($id);
+
+        if (! $targetUser) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Kullanıcı bulunamadı.',
+            ], 404);
+        }
+
+        $userName = $targetUser->name ?: $targetUser->username;
+
+        // Get all downloads belonging to this user
+        $userDownloads = DebridDownload::where('user_id', $targetUser->id)->get();
+
+        foreach ($userDownloads as $download) {
+            $storagePath = $download->storage_path;
+            $linkHash = $download->link_hash;
+            $downloadUuid = $download->uuid;
+
+            // Mark as cancelled and delete record
+            $download->update(['status' => 'cancelled']);
+            $download->delete();
+
+            // Check if any other user still has a record for this link_hash
+            $otherActiveCount = DebridDownload::where('link_hash', $linkHash)
+                ->where('status', '!=', 'cancelled')
+                ->count();
+
+            if ($otherActiveCount === 0) {
+                Cache::put("cancel_download_{$downloadUuid}", true, now()->addMinutes(10));
+
+                if (! empty($storagePath)) {
+                    $fullPath = Storage::disk('public')->path($storagePath);
+                    if (file_exists($fullPath)) {
+                        @unlink($fullPath);
+                    }
+                    $dir = dirname($storagePath);
+                    if ($dir && $dir !== '.' && Storage::disk('public')->exists($dir)) {
+                        Storage::disk('public')->deleteDirectory($dir);
+                    }
+                }
+            }
+        }
+
+        // Delete user record from DB
+        $targetUser->delete();
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "{$userName} kullanıcısı ve kullanıcıya ait tüm indirme verileri veritabanından silindi.",
+            ]);
+        }
+
+        return redirect()->route('dashboard')->with('success', "{$userName} kullanıcısı ve tüm verileri silindi.");
+    }
+
+    /**
      * Check Real-Debrid API status
      */
     public function rdStatus()

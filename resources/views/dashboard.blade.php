@@ -65,11 +65,49 @@
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        .animate-slide-in {
+            animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
     </style>
 </head>
 
 <body class="h-full text-slate-100 bg-slate-950 font-sans antialiased selection:bg-indigo-500 selection:text-white"
     x-data="debridApp()" x-init="initPolling()">
+
+    <!-- TOAST NOTIFICATION CONTAINER (Top Right, Auto Disappears in 3s) -->
+    <div class="fixed top-5 right-5 z-50 flex flex-col gap-2.5 pointer-events-none max-w-sm w-full px-4" x-cloak>
+        <template x-for="toast in toasts" :key="toast.id">
+            <div class="pointer-events-auto rounded-xl p-4 shadow-2xl border flex items-start gap-3 animate-slide-in backdrop-blur-md transition-all duration-300"
+                :class="{
+                    'bg-slate-900/95 border-emerald-500/30 text-emerald-300 shadow-emerald-950/40': toast.type === 'success',
+                    'bg-slate-900/95 border-rose-500/30 text-rose-300 shadow-rose-950/40': toast.type === 'error',
+                    'bg-slate-900/95 border-amber-500/30 text-amber-300 shadow-amber-950/40': toast.type === 'warning',
+                    'bg-slate-900/95 border-indigo-500/30 text-indigo-300 shadow-indigo-950/40': toast.type === 'info'
+                }">
+                <div class="shrink-0 text-base mt-0.5">
+                    <template x-if="toast.type === 'success'"><i class="fa-solid fa-circle-check text-emerald-400"></i></template>
+                    <template x-if="toast.type === 'error'"><i class="fa-solid fa-circle-xmark text-rose-400"></i></template>
+                    <template x-if="toast.type === 'warning'"><i class="fa-solid fa-triangle-exclamation text-amber-400"></i></template>
+                    <template x-if="toast.type === 'info'"><i class="fa-solid fa-circle-info text-indigo-400"></i></template>
+                </div>
+                <div class="flex-1 text-xs font-medium leading-relaxed" x-text="toast.message"></div>
+                <button @click="removeToast(toast.id)" class="text-slate-400 hover:text-white transition shrink-0">
+                    <i class="fa-solid fa-xmark text-xs"></i>
+                </button>
+            </div>
+        </template>
+    </div>
 
     <div class="min-h-full flex flex-col">
         <!-- TOP NAV BAR -->
@@ -338,6 +376,7 @@
                                     <th class="px-4 py-3 text-center">Toplam Boyut</th>
                                     <th class="px-4 py-3 text-center">Aktif Bağlantı</th>
                                     <th class="px-4 py-3 text-right">Aktif IP</th>
+                                    <th class="px-4 py-3 text-right">İşlemler</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-800/60">
@@ -373,11 +412,18 @@
                                         </td>
                                         <td class="px-4 py-3 text-right font-mono text-xs text-amber-300 font-bold"
                                             x-text="uStat.last_ip || 'N/A'"></td>
+                                        <td class="px-4 py-3 text-right">
+                                            <button @click="deleteUser(uStat.id, uStat.name)"
+                                                class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-rose-950 hover:text-rose-400 text-slate-400 text-xs transition flex items-center gap-1.5 ml-auto"
+                                                title="Kullanıcıyı ve Tüm Verilerini Sil">
+                                                <i class="fa-solid fa-user-xmark text-rose-400"></i> Sil
+                                            </button>
+                                        </td>
                                     </tr>
                                 </template>
                                 <template x-if="userStatsList.length === 0">
                                     <tr>
-                                        <td colspan="5" class="px-4 py-6 text-center text-slate-500 text-xs">
+                                        <td colspan="6" class="px-4 py-6 text-center text-slate-500 text-xs">
                                             Kullanıcı verisi bulunamadı.
                                         </td>
                                     </tr>
@@ -685,6 +731,21 @@
                 isRefreshing: false,
                 isSuperUser: {{ !empty($isSuperUser) && $isSuperUser ? 'true' : 'false' }},
 
+                // Toast notifications state & helper
+                toasts: [],
+
+                showToast(message, type = 'info', duration = 3000) {
+                    const id = Date.now() + Math.random();
+                    this.toasts.push({ id, message, type });
+                    setTimeout(() => {
+                        this.removeToast(id);
+                    }, duration);
+                },
+
+                removeToast(id) {
+                    this.toasts = this.toasts.filter(t => t.id !== id);
+                },
+
                 // Pagination states
                 downloadsPage: 1,
                 downloadsPerPage: 10,
@@ -785,11 +846,38 @@
                         });
                         const json = await res.json();
                         if (json && json.success) {
+                            this.showToast(json.message || 'İndirme kaydı başarıyla silindi.', 'success');
                             this.fetchDownloads(true);
+                        } else {
+                            this.showToast(json?.message || 'Silme işlemi sırasında hata oluştu.', 'error');
                         }
                     } catch (e) {
                         this.fetchDownloads(true);
-                        alert('İşlem sırasında hata oluştu.');
+                        this.showToast('İşlem sırasında hata oluştu.', 'error');
+                    }
+                },
+
+                async deleteUser(userId, userName) {
+                    if (!confirm(`"${userName}" kullanıcısını ve bu kullanıcıya ait TÜM veri ve dosyaları veritabanından silmek istediğinize emin misiniz?`)) return;
+
+                    try {
+                        const res = await fetch('/users/' + userId, {
+                            method: 'DELETE',
+                            headers: {
+                                'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                                'Accept': 'application/json'
+                            }
+                        });
+                        const json = await res.json();
+                        if (json && json.success) {
+                            this.showToast(json.message || 'Kullanıcı ve verileri başarıyla silindi.', 'success');
+                            this.userStatsList = this.userStatsList.filter(u => u.id !== userId);
+                            this.fetchDownloads(true);
+                        } else {
+                            this.showToast(json?.message || 'Kullanıcı silinirken hata oluştu.', 'error');
+                        }
+                    } catch (e) {
+                        this.showToast('Kullanıcı silinirken sunucu hatası oluştu.', 'error');
                     }
                 },
 
@@ -811,19 +899,22 @@
                         const json = await res.json();
 
                         if (res.status === 403 || json?.redirect) {
-                            alert(json?.message || 'Üyelik grubunuz yetkili olmadığı için oturumunuz kapatıldı.');
-                            window.location.href = json?.redirect || '/login';
+                            this.showToast(json?.message || 'Üyelik grubunuz yetkili olmadığı için oturumunuz kapatıldı.', 'error');
+                            setTimeout(() => {
+                                window.location.href = json?.redirect || '/login';
+                            }, 1500);
                             return;
                         }
 
                         if (json && json.success) {
                             this.inputUrl = '';
+                            this.showToast(json?.message || 'İndirme talebi alındı.', 'success');
                             this.fetchDownloads(true);
                         } else {
-                            alert(json?.message || 'İndirme kuyruğa eklenirken hata oluştu.');
+                            this.showToast(json?.message || 'İndirme kuyruğa eklenirken hata oluştu.', 'error');
                         }
                     } catch (e) {
-                        alert('İstek gönderilirken hata oluştu.');
+                        this.showToast('İstek gönderilirken hata oluştu.', 'error');
                     } finally {
                         this.isSubmitting = false;
                     }
@@ -836,26 +927,26 @@
                             this.inputUrl = text.trim();
                         }
                     } catch (e) {
-                        alert('Panoya erişilemedi.');
+                        this.showToast('Panoya erişilemedi.', 'error');
                     }
                 },
 
                 copyLink(text) {
                     navigator.clipboard.writeText(text);
-                    alert('⚡ Proxy İndirme Linki Panoya Kopyalandı:\n' + text);
+                    this.showToast('⚡ Proxy İndirme Linki Panoya Kopyalandı!', 'success');
                 },
 
                 copyIdmLink(item) {
                     if (!item) return;
                     const idmUrl = window.location.origin + '/api/indir/' + (item.id || item.uuid);
                     navigator.clipboard.writeText(idmUrl);
-                    alert('⚡ IDM Uyumlu Bağlantı Kopyalandı!\nIDM\'ye doğrudan yapıştırabilirsiniz:\n\n' + idmUrl);
+                    this.showToast('⚡ IDM Uyumlu Bağlantı Kopyalandı!', 'success');
                 },
 
                 copyOriginalLink(link) {
                     if (!link) return;
                     navigator.clipboard.writeText(link);
-                    alert('🔗 Orijinal Bağlantı Panoya Kopyalandı:\n' + link);
+                    this.showToast('🔗 Orijinal Bağlantı Panoya Kopyalandı!', 'success');
                 },
 
                 getProgress(item) {
