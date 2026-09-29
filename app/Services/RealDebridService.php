@@ -277,8 +277,12 @@ class RealDebridService
         $candidates = self::getCandidateProxiesForApi();
         $lastError = 'Bağlantı kurulamadı.';
 
+        Log::info('[RD_UNRESTRICT] Unrestrict isteği başlatılıyor. Denenecek proxy sayısı: '.count($candidates));
+
         foreach ($candidates as $proxy) {
+            $proxyLabel = self::getDisplayProxy($proxy);
             try {
+                Log::info("--> [RD_UNRESTRICT] Proxy [{$proxyLabel}] ile Real-Debrid /unrestrict/link çağrılıyor...");
                 $options = [
                     'force_ip_resolve' => 'v4',
                     'connect_timeout' => 3.0,
@@ -306,6 +310,7 @@ class RealDebridService
                     }
 
                     $data = $response->json();
+                    Log::info("[RD_UNRESTRICT_BASARILI] Link dönüştürüldü! Proxy: [{$proxyLabel}] | Dosya: ".($data['filename'] ?? 'bilinmiyor').' | Boyut: '.($data['filesize'] ?? 0));
 
                     return [
                         'success' => true,

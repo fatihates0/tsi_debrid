@@ -6,6 +6,8 @@ use App\Jobs\ProcessDebridDownloadJob;
 use App\Models\DebridDownload;
 use App\Services\RealDebridService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
@@ -66,6 +68,7 @@ class DebridDownloadController extends Controller
                         'data' => $existing,
                     ]);
                 }
+
                 return redirect()->route('dashboard')->with('success', '⚡ Dosya önbellekte hazır! Real-Debrid yeniden çağrılmadı.');
             }
 
@@ -79,6 +82,7 @@ class DebridDownloadController extends Controller
                         'data' => $existing,
                     ]);
                 }
+
                 return redirect()->route('dashboard')->with('info', '⌛ Dosya şu an sunucumuza indiriliyor, canlı durum tablosundan takip edebilirsiniz.');
             }
         }
@@ -94,7 +98,10 @@ class DebridDownloadController extends Controller
         ]);
 
         // Dispatch job to queue (or dispatchAfterResponse if sync to prevent 504 Gateway Timeout)
-        if (config('queue.default') === 'sync') {
+        $queueDriver = config('queue.default');
+        Log::info("[INDIRME_KAYDI_OLUSTU] Yeni indirme talebi eklendi (UUID: {$download->uuid}) | Queue Driver: {$queueDriver} | Link: {$originalLink}");
+
+        if ($queueDriver === 'sync') {
             ProcessDebridDownloadJob::dispatchAfterResponse($download);
         } else {
             ProcessDebridDownloadJob::dispatch($download);
@@ -118,6 +125,7 @@ class DebridDownloadController extends Controller
     public function show(string $uuid)
     {
         $download = DebridDownload::where('uuid', $uuid)->firstOrFail();
+
         return response()->json([
             'success' => true,
             'data' => $download,
@@ -130,6 +138,7 @@ class DebridDownloadController extends Controller
     public function listAjax()
     {
         $downloads = DebridDownload::orderBy('created_at', 'desc')->limit(30)->get();
+
         return response()->json([
             'success' => true,
             'data' => $downloads,
@@ -139,102 +148,103 @@ class DebridDownloadController extends Controller
     /**
      * Direct local download to user (Proxy file serving with Range & HEAD support for IDM)
      */
-     public function downloadFile(Request $request, string $uuid): Response
-     {
-         $download = DebridDownload::where('uuid', $uuid)->firstOrFail();
+    public function downloadFile(Request $request, string $uuid): Response
+    {
+        $download = DebridDownload::where('uuid', $uuid)->firstOrFail();
 
-         if ($download->status !== 'completed' || empty($download->storage_path)) {
-             abort(404, 'Dosya henüz hazır değil veya sunucuda bulunamadı.');
-         }
+        if ($download->status !== 'completed' || empty($download->storage_path)) {
+            abort(404, 'Dosya henüz hazır değil veya sunucuda bulunamadı.');
+        }
 
-         $fullPath = Storage::disk('public')->path($download->storage_path);
+        $fullPath = Storage::disk('public')->path($download->storage_path);
 
-         if (!file_exists($fullPath)) {
-             abort(404, 'Fiziksel dosya disk üzerinde bulunamadı.');
-         }
+        if (! file_exists($fullPath)) {
+            abort(404, 'Fiziksel dosya disk üzerinde bulunamadı.');
+        }
 
-         // Increment download count tracker on initial download (not on range chunks or HEAD)
-         $rangeHeader = $request->header('Range');
-         if (!$request->isMethod('HEAD') && (!$rangeHeader || str_starts_with($rangeHeader, 'bytes=0-'))) {
-             $download->increment('download_count');
-         }
+        // Increment download count tracker on initial download (not on range chunks or HEAD)
+        $rangeHeader = $request->header('Range');
+        if (! $request->isMethod('HEAD') && (! $rangeHeader || str_starts_with($rangeHeader, 'bytes=0-'))) {
+            $download->increment('download_count');
+        }
 
-         $fileSize = filesize($fullPath);
-         $filename = $download->filename ?: basename($fullPath);
-         $mimeType = $download->mime_type ?: 'application/octet-stream';
+        $fileSize = filesize($fullPath);
+        $filename = $download->filename ?: basename($fullPath);
+        $mimeType = $download->mime_type ?: 'application/octet-stream';
 
-         $start = 0;
-         $end = $fileSize > 0 ? $fileSize - 1 : 0;
-         $isRange = false;
+        $start = 0;
+        $end = $fileSize > 0 ? $fileSize - 1 : 0;
+        $isRange = false;
 
-         if ($rangeHeader && preg_match('/bytes=(\d+)-(\d*)?/i', $rangeHeader, $matches)) {
-             $isRange = true;
-             $start = (int) $matches[1];
-             if (isset($matches[2]) && $matches[2] !== '') {
-                 $end = min((int) $matches[2], $fileSize > 0 ? $fileSize - 1 : (int) $matches[2]);
-             }
-         }
+        if ($rangeHeader && preg_match('/bytes=(\d+)-(\d*)?/i', $rangeHeader, $matches)) {
+            $isRange = true;
+            $start = (int) $matches[1];
+            if (isset($matches[2]) && $matches[2] !== '') {
+                $end = min((int) $matches[2], $fileSize > 0 ? $fileSize - 1 : (int) $matches[2]);
+            }
+        }
 
-         $length = $fileSize > 0 ? max(0, ($end - $start) + 1) : 0;
+        $length = $fileSize > 0 ? max(0, ($end - $start) + 1) : 0;
 
-         $encodedFilename = rawurlencode($filename);
-         $contentDisposition = 'attachment; filename="' . addslashes($filename) . '"; filename*=UTF-8\'\'' . $encodedFilename;
+        $encodedFilename = rawurlencode($filename);
+        $contentDisposition = 'attachment; filename="'.addslashes($filename).'"; filename*=UTF-8\'\''.$encodedFilename;
 
-         $headers = [
-             'Content-Type' => $mimeType,
-             'Content-Disposition' => $contentDisposition,
-             'Accept-Ranges' => 'bytes',
-             'Cache-Control' => 'no-cache, private',
-         ];
+        $headers = [
+            'Content-Type' => $mimeType,
+            'Content-Disposition' => $contentDisposition,
+            'Accept-Ranges' => 'bytes',
+            'Cache-Control' => 'no-cache, private',
+        ];
 
-         // 1. HEAD request - used by IDM and download managers for pre-fetch size inspection
-         if ($request->isMethod('HEAD')) {
-             if ($fileSize > 0) {
-                 $headers['Content-Length'] = (string) $fileSize;
-             }
-             return response('', 200, $headers);
-         }
+        // 1. HEAD request - used by IDM and download managers for pre-fetch size inspection
+        if ($request->isMethod('HEAD')) {
+            if ($fileSize > 0) {
+                $headers['Content-Length'] = (string) $fileSize;
+            }
 
-         // 2. Partial Range request (IDM 0-0 probe, multi-threaded range chunks, resumed downloads)
-         if ($isRange) {
-             $headers['Content-Length'] = (string) $length;
-             if ($fileSize > 0) {
-                 $headers['Content-Range'] = "bytes {$start}-{$end}/{$fileSize}";
-             }
-             $statusCode = 206;
-         } else {
-             // 3. Normal full GET request
-             $headers['Content-Length'] = (string) $fileSize;
-             $statusCode = 200;
-         }
+            return response('', 200, $headers);
+        }
 
-         return new StreamedResponse(function () use ($fullPath, $start, $length) {
-             if (! app()->environment('testing')) {
-                 while (ob_get_level() > 0) {
-                     @ob_end_clean();
-                 }
-             }
+        // 2. Partial Range request (IDM 0-0 probe, multi-threaded range chunks, resumed downloads)
+        if ($isRange) {
+            $headers['Content-Length'] = (string) $length;
+            if ($fileSize > 0) {
+                $headers['Content-Range'] = "bytes {$start}-{$end}/{$fileSize}";
+            }
+            $statusCode = 206;
+        } else {
+            // 3. Normal full GET request
+            $headers['Content-Length'] = (string) $fileSize;
+            $statusCode = 200;
+        }
 
-             $stream = fopen($fullPath, 'rb');
-             if ($stream) {
-                 fseek($stream, $start);
-                 $remaining = $length;
-                 $bufferSize = 1048576; // 1 MB chunk buffer
+        return new StreamedResponse(function () use ($fullPath, $start, $length) {
+            if (! app()->environment('testing')) {
+                while (ob_get_level() > 0) {
+                    @ob_end_clean();
+                }
+            }
 
-                 while (! feof($stream) && $remaining > 0) {
-                     $readSize = min($bufferSize, $remaining);
-                     $data = fread($stream, $readSize);
-                     if ($data === false) {
-                         break;
-                     }
-                     echo $data;
-                     flush();
-                     $remaining -= strlen($data);
-                 }
-                 fclose($stream);
-             }
-         }, $statusCode, $headers);
-     }
+            $stream = fopen($fullPath, 'rb');
+            if ($stream) {
+                fseek($stream, $start);
+                $remaining = $length;
+                $bufferSize = 1048576; // 1 MB chunk buffer
+
+                while (! feof($stream) && $remaining > 0) {
+                    $readSize = min($bufferSize, $remaining);
+                    $data = fread($stream, $readSize);
+                    if ($data === false) {
+                        break;
+                    }
+                    echo $data;
+                    flush();
+                    $remaining -= strlen($data);
+                }
+                fclose($stream);
+            }
+        }, $statusCode, $headers);
+    }
 
     /**
      * Delete cached download file / Cancel ongoing download
@@ -244,13 +254,13 @@ class DebridDownloadController extends Controller
         $download = DebridDownload::where('uuid', $uuid)->firstOrFail();
 
         // 1. Signal cancellation to any active background download jobs
-        \Illuminate\Support\Facades\Cache::put("cancel_download_{$uuid}", true, now()->addMinutes(10));
+        Cache::put("cancel_download_{$uuid}", true, now()->addMinutes(10));
 
         // 2. Mark as cancelled before deletion so active loop notices
         $download->update(['status' => 'cancelled']);
 
         // 3. Delete physical storage file and folder
-        if (!empty($download->storage_path)) {
+        if (! empty($download->storage_path)) {
             $fullPath = Storage::disk('public')->path($download->storage_path);
             if (file_exists($fullPath)) {
                 @unlink($fullPath);
@@ -279,6 +289,7 @@ class DebridDownloadController extends Controller
     public function rdStatus()
     {
         $info = $this->rdService->getUserInfo();
+
         return response()->json($info);
     }
 }
