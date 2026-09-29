@@ -46,10 +46,28 @@ class DebridDownloadController extends Controller
             $statsQuery->where('user_id', $user->id);
         }
 
+        // Calculate actual server disk usage (sum of unique completed files by link_hash)
+        $uniqueCompletedQuery = DebridDownload::where('status', 'completed')
+            ->select('link_hash', DB::raw('MAX(filesize) as actual_size'))
+            ->groupBy('link_hash');
+
+        if (! $isSuperUser && $user) {
+            $uniqueCompletedQuery->where('user_id', $user->id);
+        }
+
+        $totalBytesCached = $uniqueCompletedQuery->get()->sum('actual_size');
+
+        // Calculate unique completed physical files count
+        $completedFilesQuery = DebridDownload::where('status', 'completed');
+        if (! $isSuperUser && $user) {
+            $completedFilesQuery->where('user_id', $user->id);
+        }
+        $completedDownloadsCount = $completedFilesQuery->distinct('link_hash')->count('link_hash');
+
         $stats = [
             'total_downloads' => (clone $statsQuery)->count(),
-            'completed_downloads' => (clone $statsQuery)->where('status', 'completed')->count(),
-            'total_bytes_cached' => (clone $statsQuery)->where('status', 'completed')->sum('filesize'),
+            'completed_downloads' => $completedDownloadsCount,
+            'total_bytes_cached' => $totalBytesCached,
             'total_saved_rd_requests' => (clone $statsQuery)->where('status', 'completed')->sum('download_count'),
             'active_connections' => (clone $statsQuery)->whereIn('status', ['pending', 'unrestricting', 'downloading'])->count(),
         ];
@@ -66,6 +84,12 @@ class DebridDownloadController extends Controller
             ])->get();
 
             foreach ($allUsers as $u) {
+                $userUniqueFiles = $u->debridDownloads()
+                    ->where('status', 'completed')
+                    ->select('link_hash', DB::raw('MAX(filesize) as actual_size'))
+                    ->groupBy('link_hash')
+                    ->get();
+
                 $userStats[] = [
                     'id' => $u->id,
                     'name' => $u->name,
@@ -73,7 +97,7 @@ class DebridDownloadController extends Controller
                     'avatar_url' => $u->avatar_url,
                     'total_cached' => $u->total_cached,
                     'active_downloads' => $u->active_downloads,
-                    'total_bytes' => $u->debridDownloads()->where('status', 'completed')->sum('filesize'),
+                    'total_bytes' => $userUniqueFiles->sum('actual_size'),
                     'last_ip' => $u->debridDownloads()->latest()->value('user_ip') ?? 'N/A',
                 ];
             }
