@@ -71,11 +71,13 @@
                 transform: translateX(100%);
                 opacity: 0;
             }
+
             to {
                 transform: translateX(0);
                 opacity: 1;
             }
         }
+
         .animate-slide-in {
             animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
@@ -96,10 +98,14 @@
                     'bg-slate-900/95 border-indigo-500/30 text-indigo-300 shadow-indigo-950/40': toast.type === 'info'
                 }">
                 <div class="shrink-0 text-base mt-0.5">
-                    <template x-if="toast.type === 'success'"><i class="fa-solid fa-circle-check text-emerald-400"></i></template>
-                    <template x-if="toast.type === 'error'"><i class="fa-solid fa-circle-xmark text-rose-400"></i></template>
-                    <template x-if="toast.type === 'warning'"><i class="fa-solid fa-triangle-exclamation text-amber-400"></i></template>
-                    <template x-if="toast.type === 'info'"><i class="fa-solid fa-circle-info text-indigo-400"></i></template>
+                    <template x-if="toast.type === 'success'"><i
+                            class="fa-solid fa-circle-check text-emerald-400"></i></template>
+                    <template x-if="toast.type === 'error'"><i
+                            class="fa-solid fa-circle-xmark text-rose-400"></i></template>
+                    <template x-if="toast.type === 'warning'"><i
+                            class="fa-solid fa-triangle-exclamation text-amber-400"></i></template>
+                    <template x-if="toast.type === 'info'"><i
+                            class="fa-solid fa-circle-info text-indigo-400"></i></template>
                 </div>
                 <div class="flex-1 text-xs font-medium leading-relaxed" x-text="toast.message"></div>
                 <button @click="removeToast(toast.id)" class="text-slate-400 hover:text-white transition shrink-0">
@@ -541,7 +547,7 @@
                                             <div class="space-y-1">
                                                 <span
                                                     class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
-                                                    <i class="fa-solid fa-circle-check"></i> Önbellekte Hazır
+                                                    <i class="fa-solid fa-circle-check"></i> Hazır
                                                 </span>
                                             </div>
                                         </template>
