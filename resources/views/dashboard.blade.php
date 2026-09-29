@@ -606,6 +606,15 @@
                                     <!-- ACTIONS -->
                                     <td class="px-4 py-3.5 text-right whitespace-nowrap">
                                         <div class="flex items-center justify-end gap-1.5">
+                                            <!-- SUPERUSER ONLY: RETRY FAILED DOWNLOAD BUTTON -->
+                                            <template x-if="isSuperUser && item.status === 'failed'">
+                                                <button @click="retryItem(item.uuid)"
+                                                    class="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold shadow transition-all flex items-center gap-1"
+                                                    title="Hatalı İndirmeyi Temizle ve Tekrar Dene">
+                                                    <i class="fa-solid fa-rotate-right"></i> Tekrar Dene
+                                                </button>
+                                            </template>
+
                                             <!-- DIRECT PROXY DOWNLOAD BUTTON -->
                                             <template x-if="item.status === 'completed'">
                                                 <a :href="'/dl/' + item.uuid" target="_blank"
@@ -893,6 +902,29 @@
                         }
                     } catch (e) {
                         this.showToast('Kullanıcı silinirken sunucu hatası oluştu.', 'error');
+                    }
+                },
+
+                async retryItem(uuid) {
+                    if (!confirm('Bu hatalı indirmeyi temizleyip yeniden başlatmak istediğinize emin misiniz?')) return;
+
+                    try {
+                        const res = await fetch('/downloads/' + uuid + '/retry', {
+                            method: 'POST',
+                            headers: {
+                                'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                                'Accept': 'application/json'
+                            }
+                        });
+                        const json = await res.json();
+                        if (json && json.success) {
+                            this.showToast(json.message || 'İndirme temizlendi ve yeniden başlatıldı!', 'success');
+                            this.fetchDownloads(true);
+                        } else {
+                            this.showToast(json?.message || 'Yeniden başlatılırken hata oluştu.', 'error');
+                        }
+                    } catch (e) {
+                        this.showToast('Yeniden başlatma isteğinde sunucu hatası oluştu.', 'error');
                     }
                 },
 

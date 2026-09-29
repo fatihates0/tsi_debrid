@@ -20,6 +20,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/downloads', [DebridDownloadController::class, 'store'])->name('downloads.store');
     Route::get('/downloads/ajax-list', [DebridDownloadController::class, 'listAjax'])->name('downloads.ajax_list');
     Route::get('/downloads/{uuid}', [DebridDownloadController::class, 'show'])->name('downloads.show');
+    Route::post('/downloads/{uuid}/retry', [DebridDownloadController::class, 'retry'])->name('downloads.retry');
     Route::delete('/downloads/{uuid}', [DebridDownloadController::class, 'destroy'])->name('downloads.destroy');
     Route::delete('/users/{id}', [DebridDownloadController::class, 'deleteUser'])->name('users.destroy');
     Route::get('/rd-status', [DebridDownloadController::class, 'rdStatus'])->name('rd.status');

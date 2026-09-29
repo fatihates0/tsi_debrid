@@ -475,6 +475,71 @@ class DebridDownloadController extends Controller
     }
 
     /**
+     * Superuser endpoint to retry a failed download.
+     * Clears error states, refreshes proxy caches, and re-dispatches ProcessDebridDownloadJob.
+     */
+    public function retry(Request $request, string $uuid)
+    {
+        /** @var User|null $user */
+        $user = auth()->user();
+
+        if (! $user || ! $user->isSuperUser()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Bu işlem için Superuser yetkisi gereklidir.',
+            ], 403);
+        }
+
+        $download = DebridDownload::where('uuid', $uuid)->firstOrFail();
+        $linkHash = $download->link_hash;
+
+        // Clear proxy block cache to ensure fresh candidate proxies are tried
+        RealDebridService::clearUserInfoCache();
+
+        // Remove any partial physical download files if present
+        if (! empty($download->storage_path)) {
+            $fullPath = Storage::disk('public')->path($download->storage_path);
+            if (file_exists($fullPath)) {
+                @unlink($fullPath);
+            }
+            $dir = dirname($download->storage_path);
+            if ($dir && $dir !== '.' && Storage::disk('public')->exists($dir)) {
+                Storage::disk('public')->deleteDirectory($dir);
+            }
+        }
+
+        // Reset failed download records matching link_hash back to pending
+        DebridDownload::where('link_hash', $linkHash)->where('status', 'failed')->update([
+            'status' => 'pending',
+            'error_message' => null,
+            'debrid_id' => null,
+            'debrid_link' => null,
+            'downloaded_bytes' => 0,
+            'storage_path' => null,
+        ]);
+
+        $freshDownload = $download->fresh();
+
+        // Dispatch background job to re-process download
+        $queueDriver = config('queue.default');
+        if ($queueDriver === 'sync') {
+            ProcessDebridDownloadJob::dispatchAfterResponse($freshDownload);
+        } else {
+            ProcessDebridDownloadJob::dispatch($freshDownload);
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'İndirme temizlendi ve yeniden başlatıldı!',
+                'data' => $freshDownload,
+            ]);
+        }
+
+        return redirect()->route('dashboard')->with('success', '🚀 İndirme temizlendi ve yeniden başlatıldı!');
+    }
+
+    /**
      * Superuser endpoint to delete a user and all their associated downloads/files from DB.
      */
     public function deleteUser(Request $request, int $id)

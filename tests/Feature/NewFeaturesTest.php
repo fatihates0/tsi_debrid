@@ -2,9 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\ProcessDebridDownloadJob;
 use App\Models\DebridDownload;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -130,5 +132,41 @@ class NewFeaturesTest extends TestCase
         $this->assertDatabaseMissing('users', ['id' => $normalUser->id]);
         $this->assertDatabaseMissing('debrid_downloads', ['id' => $userDownload->id]);
         Storage::disk('public')->assertMissing('downloads/user-dl-789/file.bin');
+    }
+
+    public function test_superuser_can_retry_failed_download(): void
+    {
+        Queue::fake();
+
+        config(['services.superuser.username' => 'admin']);
+
+        $superuser = User::factory()->create(['username' => 'admin']);
+        $normalUser = User::factory()->create(['username' => 'user1']);
+
+        $failedDownload = DebridDownload::create([
+            'uuid' => 'failed-dl-999',
+            'user_id' => $normalUser->id,
+            'original_link' => 'https://mega.nz/file/fail#123',
+            'link_hash' => md5('https://mega.nz/file/fail#123'),
+            'status' => 'failed',
+            'error_message' => 'Something failed',
+        ]);
+
+        // Non-superuser gets 403
+        $res1 = $this->actingAs($normalUser)->postJson("/downloads/{$failedDownload->uuid}/retry");
+        $res1->assertStatus(403);
+
+        // Superuser retries
+        $res2 = $this->actingAs($superuser)->postJson("/downloads/{$failedDownload->uuid}/retry");
+        $res2->assertStatus(200);
+        $res2->assertJson(['success' => true]);
+
+        $this->assertDatabaseHas('debrid_downloads', [
+            'id' => $failedDownload->id,
+            'status' => 'pending',
+            'error_message' => null,
+        ]);
+
+        Queue::assertPushed(ProcessDebridDownloadJob::class);
     }
 }
