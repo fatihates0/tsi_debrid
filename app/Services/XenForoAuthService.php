@@ -3,27 +3,14 @@
 namespace App\Services;
 
 use App\Models\User;
-use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class XenForoAuthService
 {
-    protected string $baseUrl;
-
-    protected string $apiKey;
-
-    protected bool $verifySsl;
-
-    public function __construct()
-    {
-        $this->baseUrl = rtrim(config('services.xenforo.url', 'https://turkcesesindir.com'), '/');
-        $this->apiKey = config('services.xenforo.api_key', '');
-        $this->verifySsl = (bool) config('services.xenforo.verify_ssl', true);
-    }
-
     /**
-     * Authenticate user credentials against XenForo REST API.
+     * Authenticate user credentials directly against XenForo MySQL database.
      *
      * @param  string  $login  Username or Email
      * @param  string  $password  User password
@@ -32,65 +19,52 @@ class XenForoAuthService
      */
     public function authenticate(string $login, string $password): User
     {
-        if (empty($this->apiKey)) {
-            throw new RuntimeException('XenForo API Key tanımlanmamış. Lütfen .env dosyasına XENFORO_API_KEY değerini ekleyin.');
-        }
-
-        $apiUrl = $this->baseUrl.'/api/auth/';
-
         try {
-            $response = Http::withHeaders([
-                'X-Api-Key' => $this->apiKey,
-                'API-Key' => $this->apiKey,
-                'Accept' => 'application/json',
-            ])
-                ->withoutVerifying()
-                ->post($apiUrl.'?api_key='.urlencode($this->apiKey), [
-                    'api_key' => $this->apiKey,
-                    'login' => $login,
-                    'password' => $password,
-                ]);
-        } catch (\Throwable $e) {
-            Log::error('XenForo Auth Connection Error', [
-                'url' => $apiUrl,
-                'error' => $e->getMessage(),
-            ]);
-            throw new RuntimeException('XenForo sunucusuna bağlanılamadı: '.$e->getMessage());
-        }
+            // Search user by username or email in XenForo's user table
+            $xfUser = DB::connection('xenforo')
+                ->table('user')
+                ->where('username', $login)
+                ->orWhere('email', $login)
+                ->first();
 
-        if ($response->failed()) {
-            $data = $response->json();
-            $errorMessage = 'Giriş bilgileri hatalı veya XenForo API erişiminde sorun oluştu.';
-
-            if (! empty($data['errors']) && is_array($data['errors'])) {
-                $firstError = reset($data['errors']);
-                if (is_array($firstError) && isset($firstError['message'])) {
-                    $errorMessage = $firstError['message'];
-                } elseif (is_string($firstError)) {
-                    $errorMessage = $firstError;
-                }
-            } elseif ($response->status() === 401 || $response->status() === 403) {
-                $errorMessage = 'XenForo API anahtarı geçersiz veya yetkisiz erişim (HTTP '.$response->status().').';
+            if (! $xfUser) {
+                throw new RuntimeException('Girdiğiniz kullanıcı adı/e-posta veya şifre hatalı.');
             }
 
-            Log::warning('XenForo Auth Failed', [
-                'status' => $response->status(),
-                'response' => $data,
+            // Retrieve authentication hash data from user_authenticate table
+            $authRecord = DB::connection('xenforo')
+                ->table('user_authenticate')
+                ->where('user_id', $xfUser->user_id)
+                ->first();
+
+            if (! $authRecord || empty($authRecord->data)) {
+                throw new RuntimeException('XenForo kullanıcı şifre doğrulama verisi bulunamadı.');
+            }
+
+            // Unserialize XenForo authentication payload
+            $data = @unserialize($authRecord->data);
+            $hash = $data['hash'] ?? null;
+
+            if (! $hash || ! password_verify($password, $hash)) {
+                throw new RuntimeException('Girdiğiniz kullanıcı adı/e-posta veya şifre hatalı.');
+            }
+
+            return $this->syncUser([
+                'user_id' => $xfUser->user_id,
+                'username' => $xfUser->username,
+                'email' => $xfUser->email,
+                'user_group_id' => $xfUser->user_group_id ?? null,
+                'avatar_date' => $xfUser->avatar_date ?? 0,
             ]);
 
-            throw new RuntimeException($errorMessage);
+        } catch (\Throwable $e) {
+            if ($e instanceof RuntimeException) {
+                throw $e;
+            }
+
+            Log::error('XenForo DB Auth Error', ['error' => $e->getMessage()]);
+            throw new RuntimeException('XenForo veritabanına bağlanılamadı: '.$e->getMessage());
         }
-
-        $data = $response->json();
-
-        // XenForo returns user data in $data['user'] or $data if direct
-        $userData = $data['user'] ?? null;
-
-        if (! $userData || empty($userData['user_id'])) {
-            throw new RuntimeException('XenForo\'dan geçerli kullanıcı bilgisi alınamadı.');
-        }
-
-        return $this->syncUser($userData);
     }
 
     /**
@@ -103,16 +77,14 @@ class XenForoAuthService
         $email = ! empty($xenForoUser['email']) ? $xenForoUser['email'] : ($username.'@turkcesesindir.com');
 
         $avatarUrl = null;
-        if (! empty($xenForoUser['avatar_urls'])) {
-            $avatarUrl = $xenForoUser['avatar_urls']['m']
-                ?? $xenForoUser['avatar_urls']['o']
-                ?? $xenForoUser['avatar_urls']['s']
-                ?? null;
+        if (! empty($xenForoUser['avatar_date']) && $xenForoUser['avatar_date'] > 0) {
+            $avatarGroup = floor($xenforoId / 1000);
+            $forumUrl = rtrim(config('services.xenforo.url', 'https://turkcesesindir.com'), '/');
+            $avatarUrl = "{$forumUrl}/data/avatars/m/{$avatarGroup}/{$xenforoId}.jpg?{$xenForoUser['avatar_date']}";
         }
 
         $userGroupId = $xenForoUser['user_group_id'] ?? null;
 
-        // Try finding by xenforo_id first, then email, then username
         $user = User::where('xenforo_id', $xenforoId)
             ->orWhere('email', $email)
             ->orWhere('username', $username)
@@ -124,7 +96,7 @@ class XenForoAuthService
                 'name' => $username,
                 'username' => $username,
                 'email' => $email,
-                'avatar_url' => $avatarUrl,
+                'avatar_url' => $avatarUrl ?: $user->avatar_url,
                 'user_group_id' => $userGroupId,
             ]);
         } else {

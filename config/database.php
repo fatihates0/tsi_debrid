@@ -64,6 +64,19 @@ return [
             ]) : [],
         ],
 
+        'xenforo' => [
+            'driver' => 'mysql',
+            'host' => env('XENFORO_DB_HOST', '127.0.0.1'),
+            'port' => env('XENFORO_DB_PORT', '3306'),
+            'database' => env('XENFORO_DB_DATABASE', 'xenforo'),
+            'username' => env('XENFORO_DB_USERNAME', 'root'),
+            'password' => env('XENFORO_DB_PASSWORD', ''),
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => env('XENFORO_DB_PREFIX', 'xf_'),
+            'strict' => false,
+        ],
+
         'mariadb' => [
             'driver' => 'mariadb',
             'url' => env('DB_URL'),

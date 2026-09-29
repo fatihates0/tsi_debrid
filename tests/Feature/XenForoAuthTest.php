@@ -3,13 +3,41 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class XenForoAuthTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Configure in-memory xenforo connection for testing
+        config(['database.connections.xenforo' => [
+            'driver' => 'sqlite',
+            'database' => ':memory:',
+            'prefix' => '',
+        ]]);
+
+        Schema::connection('xenforo')->create('user', function (Blueprint $table) {
+            $table->id('user_id');
+            $table->string('username');
+            $table->string('email');
+            $table->integer('user_group_id')->default(2);
+            $table->integer('avatar_date')->default(0);
+        });
+
+        Schema::connection('xenforo')->create('user_authenticate', function (Blueprint $table) {
+            $table->id('user_id');
+            $table->string('scheme_class')->default('XF\Authentication\Core12');
+            $table->binary('data');
+        });
+    }
 
     public function test_guest_is_redirected_to_login(): void
     {
@@ -26,23 +54,22 @@ class XenForoAuthTest extends TestCase
         $response->assertSee('turkcesesindir.com');
     }
 
-    public function test_user_can_authenticate_via_xenforo_api(): void
+    public function test_user_can_authenticate_via_xenforo_database(): void
     {
-        config(['services.xenforo.api_key' => 'test-super-user-key']);
+        $passwordHash = password_hash('secret123', PASSWORD_BCRYPT);
+        $authPayload = serialize(['hash' => $passwordHash]);
 
-        Http::fake([
-            '*api/auth*' => Http::response([
-                'success' => true,
-                'user' => [
-                    'user_id' => 101,
-                    'username' => 'TestForumUser',
-                    'email' => 'forumuser@turkcesesindir.com',
-                    'avatar_urls' => [
-                        'm' => 'https://turkcesesindir.com/data/avatars/m/0/101.jpg',
-                    ],
-                    'user_group_id' => 2,
-                ],
-            ], 200),
+        DB::connection('xenforo')->table('user')->insert([
+            'user_id' => 101,
+            'username' => 'TestForumUser',
+            'email' => 'forumuser@turkcesesindir.com',
+            'user_group_id' => 2,
+        ]);
+
+        DB::connection('xenforo')->table('user_authenticate')->insert([
+            'user_id' => 101,
+            'scheme_class' => 'XF\Authentication\Core12',
+            'data' => $authPayload,
         ]);
 
         $response = $this->post('/login', [
@@ -60,19 +87,20 @@ class XenForoAuthTest extends TestCase
         ]);
     }
 
-    public function test_authentication_fails_with_invalid_credentials(): void
+    public function test_authentication_fails_with_invalid_password(): void
     {
-        config(['services.xenforo.api_key' => 'test-super-user-key']);
+        $passwordHash = password_hash('correctpass', PASSWORD_BCRYPT);
+        $authPayload = serialize(['hash' => $passwordHash]);
 
-        Http::fake([
-            '*api/auth*' => Http::response([
-                'errors' => [
-                    [
-                        'code' => 'incorrect_password',
-                        'message' => 'Belirtilen şifre yanlış.',
-                    ],
-                ],
-            ], 400),
+        DB::connection('xenforo')->table('user')->insert([
+            'user_id' => 102,
+            'username' => 'WrongUser',
+            'email' => 'wrong@turkcesesindir.com',
+        ]);
+
+        DB::connection('xenforo')->table('user_authenticate')->insert([
+            'user_id' => 102,
+            'data' => $authPayload,
         ]);
 
         $response = $this->post('/login', [
