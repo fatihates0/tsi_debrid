@@ -311,7 +311,7 @@
             </div>
 
             <!-- STATS CARDS GRID -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 {{ (!empty($isSuperUser) && $isSuperUser) ? 'lg:grid-cols-5' : 'lg:grid-cols-4' }} gap-4">
                 <div class="glass-card rounded-xl p-4">
                     <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
                         <span>Toplam İndirme Kaydı</span>
@@ -348,6 +348,23 @@
                             class="text-xs font-normal text-slate-400">istek</span>
                     </div>
                 </div>
+
+                @if(!empty($isSuperUser) && $isSuperUser)
+                    <div class="glass-card rounded-xl p-4 border border-violet-500/30">
+                        <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+                            <span>Sunucu Boş Disk Alanı</span>
+                            <i class="fa-solid fa-server text-violet-400"></i>
+                        </div>
+                        <div class="text-2xl font-bold text-violet-300 mt-2 font-mono">
+                            {{ formatBytes($stats['free_disk_space']) }}
+                        </div>
+                        @if(!empty($stats['total_disk_space']) && $stats['total_disk_space'] > 0)
+                            <div class="text-[11px] text-slate-400 mt-1 font-mono">
+                                Toplam: <span class="text-slate-300">{{ formatBytes($stats['total_disk_space']) }}</span>
+                            </div>
+                        @endif
+                    </div>
+                @endif
             </div>
 
             @if(!empty($isSuperUser) && $isSuperUser)

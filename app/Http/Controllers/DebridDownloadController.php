@@ -64,12 +64,18 @@ class DebridDownloadController extends Controller
         }
         $completedDownloadsCount = $completedFilesQuery->distinct('link_hash')->count('link_hash');
 
+        $storagePath = Storage::disk('public')->path('');
+        $freeDiskSpace = @disk_free_space($storagePath);
+        $totalDiskSpace = @disk_total_space($storagePath);
+
         $stats = [
             'total_downloads' => (clone $statsQuery)->count(),
             'completed_downloads' => $completedDownloadsCount,
             'total_bytes_cached' => $totalBytesCached,
             'total_saved_rd_requests' => (clone $statsQuery)->where('status', 'completed')->sum('download_count'),
             'active_connections' => (clone $statsQuery)->whereIn('status', ['pending', 'unrestricting', 'downloading'])->count(),
+            'free_disk_space' => $freeDiskSpace !== false ? (int) $freeDiskSpace : 0,
+            'total_disk_space' => $totalDiskSpace !== false ? (int) $totalDiskSpace : 0,
         ];
 
         $userStats = [];
