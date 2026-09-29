@@ -4,7 +4,10 @@ namespace Tests\Feature;
 
 use App\Jobs\ProcessDebridDownloadJob;
 use App\Models\DebridDownload;
+use App\Models\User;
+use App\Services\RealDebridService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -12,6 +15,14 @@ use Tests\TestCase;
 class DebridProxyTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $user = User::factory()->create();
+        $this->actingAs($user);
+    }
 
     public function test_it_can_load_dashboard_page()
     {
@@ -106,20 +117,20 @@ class DebridProxyTest extends TestCase
         ]);
 
         // 1. Full GET request
-        $response = $this->get('/dl/' . $download->uuid);
+        $response = $this->get('/dl/'.$download->uuid);
         $response->assertStatus(200);
         $response->assertHeader('Content-Length', (string) $expectedSize);
         $response->assertHeader('Accept-Ranges', 'bytes');
         $this->assertEquals($content, $response->streamedContent());
 
         // 2. HEAD request (IDM size pre-check)
-        $headResponse = $this->call('HEAD', '/dl/' . $download->uuid);
+        $headResponse = $this->call('HEAD', '/dl/'.$download->uuid);
         $headResponse->assertStatus(200);
         $headResponse->assertHeader('Content-Length', (string) $expectedSize);
         $headResponse->assertHeader('Accept-Ranges', 'bytes');
 
         // 3. IDM Range 0-0 probe (1-byte probe to check total size and range support)
-        $probeResponse = $this->get('/dl/' . $download->uuid, [
+        $probeResponse = $this->get('/dl/'.$download->uuid, [
             'Range' => 'bytes=0-0',
         ]);
         $probeResponse->assertStatus(206);
@@ -128,7 +139,7 @@ class DebridProxyTest extends TestCase
         $this->assertEquals(substr($content, 0, 1), $probeResponse->streamedContent());
 
         // 4. Partial byte range chunk request (IDM multi-threaded download)
-        $chunkResponse = $this->get('/dl/' . $download->uuid, [
+        $chunkResponse = $this->get('/dl/'.$download->uuid, [
             'Range' => 'bytes=0-9',
         ]);
         $chunkResponse->assertStatus(206);
@@ -139,21 +150,21 @@ class DebridProxyTest extends TestCase
 
     public function test_proxy_list_is_parsed_from_proxies_file()
     {
-        $proxies = \App\Services\RealDebridService::getProxyList();
+        $proxies = RealDebridService::getProxyList();
         $this->assertIsArray($proxies);
 
-        $candidates = \App\Services\RealDebridService::getCandidateProxiesForApi();
+        $candidates = RealDebridService::getCandidateProxiesForApi();
         $this->assertIsArray($candidates);
         $this->assertNotEmpty($candidates);
     }
 
     public function test_cancelling_download_sets_cache_flag_and_cleans_up()
     {
-        \Illuminate\Support\Facades\Storage::fake('public');
-        \Illuminate\Support\Facades\Cache::flush();
+        Storage::fake('public');
+        Cache::flush();
 
         $storagePath = 'downloads/cancel-test-uuid/partial_movie.rar';
-        \Illuminate\Support\Facades\Storage::disk('public')->put($storagePath, 'partial download data');
+        Storage::disk('public')->put($storagePath, 'partial download data');
 
         $download = DebridDownload::create([
             'uuid' => 'cancel-test-uuid',
@@ -163,18 +174,18 @@ class DebridProxyTest extends TestCase
             'storage_path' => $storagePath,
         ]);
 
-        $response = $this->deleteJson('/downloads/' . $download->uuid);
+        $response = $this->deleteJson('/downloads/'.$download->uuid);
 
         $response->assertStatus(200);
         $response->assertJson(['success' => true]);
 
         // Cancellation flag must be set in Cache so background worker halts Guzzle transfer
-        $this->assertTrue(\Illuminate\Support\Facades\Cache::has('cancel_download_cancel-test-uuid'));
+        $this->assertTrue(Cache::has('cancel_download_cancel-test-uuid'));
 
         // Database record must be deleted
         $this->assertDatabaseMissing('debrid_downloads', ['uuid' => 'cancel-test-uuid']);
 
         // Physical file must be deleted
-        \Illuminate\Support\Facades\Storage::disk('public')->assertMissing($storagePath);
+        Storage::disk('public')->assertMissing($storagePath);
     }
 }

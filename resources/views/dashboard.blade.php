@@ -146,6 +146,32 @@
                         </div>
                     </template>
                 </div>
+
+                @auth
+                    <!-- XENFORO USER PROFILE & LOGOUT -->
+                    <div class="flex items-center gap-3 pl-3 border-l border-slate-800">
+                        <div class="flex items-center gap-2">
+                            @if(Auth::user()->avatar_url)
+                                <img src="{{ Auth::user()->avatar_url }}" alt="{{ Auth::user()->name }}" class="w-8 h-8 rounded-full border border-indigo-500/40 object-cover">
+                            @else
+                                <div class="w-8 h-8 rounded-full bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-300 font-bold text-xs">
+                                    {{ strtoupper(substr(Auth::user()->name ?? 'U', 0, 1)) }}
+                                </div>
+                            @endif
+                            <div class="hidden sm:flex flex-col">
+                                <span class="text-xs font-bold text-white leading-tight">{{ Auth::user()->name }}</span>
+                                <span class="text-[10px] text-indigo-400 font-medium">turkcesesindir.com</span>
+                            </div>
+                        </div>
+                        <form method="POST" action="{{ route('logout') }}">
+                            @csrf
+                            <button type="submit" title="Çıkış Yap" class="p-2 rounded-xl bg-slate-800/80 hover:bg-red-500/20 text-slate-400 hover:text-red-400 border border-slate-700/60 hover:border-red-500/30 transition text-xs flex items-center gap-1.5">
+                                <i class="fa-solid fa-right-from-bracket"></i>
+                                <span class="hidden md:inline">Çıkış</span>
+                            </button>
+                        </form>
+                    </div>
+                @endauth
             </div>
         </header>
 

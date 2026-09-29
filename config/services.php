@@ -42,4 +42,10 @@ return [
         'proxy' => env('REAL_DEBRID_PROXY', null),
     ],
 
+    'xenforo' => [
+        'url' => env('XENFORO_URL', 'https://turkcesesindir.com'),
+        'api_key' => env('XENFORO_API_KEY', ''),
+        'verify_ssl' => env('XENFORO_VERIFY_SSL', true),
+    ],
+
 ];
